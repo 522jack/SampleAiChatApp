@@ -8,6 +8,9 @@ import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.MessageRole
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.flow.Flow
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -34,6 +37,7 @@ class ChatRepositoryImpl(
         systemPrompt: String?
     ): Flow<String> {
         val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
+        val jsonModeEnabled = getJsonMode()
 
         val claudeMessages = messages.map { message ->
             ClaudeMessage(
@@ -45,15 +49,40 @@ class ChatRepositoryImpl(
             )
         }
 
+        // Prepare system prompt with JSON instructions if JSON mode is enabled
+        val finalSystemPrompt = if (jsonModeEnabled) {
+            val basePrompt = systemPrompt ?: DEFAULT_SYSTEM_PROMPT
+            // Get current date
+            val currentDate = Clock.System.now()
+                .toLocalDateTime(TimeZone.currentSystemDefault())
+                .date
+                .toString()
+
+            """$basePrompt
+
+Today's date is: $currentDate
+
+IMPORTANT: You must respond ONLY with valid JSON in the following format:
+{
+  "question": "the user's question or request",
+  "answer": "your detailed answer",
+  "date": "$currentDate"
+}
+
+Always use exactly "$currentDate" as the date value. Do not include any text outside of this JSON structure. The entire response must be valid JSON."""
+        } else {
+            systemPrompt ?: DEFAULT_SYSTEM_PROMPT
+        }
+
         val request = ClaudeMessageRequest(
             model = MODEL,
             messages = claudeMessages,
             maxTokens = MAX_TOKENS,
             stream = true,
-            system = systemPrompt ?: DEFAULT_SYSTEM_PROMPT
+            system = finalSystemPrompt
         )
 
-        Napier.d("Sending message to Claude API with ${messages.size} messages")
+        Napier.d("Sending message to Claude API with ${messages.size} messages, JSON mode: $jsonModeEnabled")
 
         return apiClient.sendMessage(request, apiKey)
     }
@@ -84,6 +113,14 @@ class ChatRepositoryImpl(
 
     override suspend fun saveSystemPrompt(prompt: String) {
         settingsStorage.saveSystemPrompt(prompt)
+    }
+
+    override suspend fun getJsonMode(): Boolean {
+        return settingsStorage.getJsonMode()
+    }
+
+    override suspend fun saveJsonMode(enabled: Boolean) {
+        settingsStorage.saveJsonMode(enabled)
     }
 
     override suspend fun isApiKeyConfigured(): Boolean {

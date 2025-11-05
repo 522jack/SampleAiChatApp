@@ -24,6 +24,7 @@ class SettingsStorage(
         private const val KEY_API_KEY = "claude_api_key"
         private const val KEY_SYSTEM_PROMPT = "system_prompt"
         private const val KEY_MESSAGES = "messages_history"
+        private const val KEY_JSON_MODE = "json_mode"
     }
 
     fun getApiKey(): String? {
@@ -41,6 +42,15 @@ class SettingsStorage(
 
     fun saveSystemPrompt(prompt: String) {
         settings.putString(KEY_SYSTEM_PROMPT, prompt)
+    }
+
+    fun getJsonMode(): Boolean {
+        return settings.getBoolean(KEY_JSON_MODE, false)
+    }
+
+    fun saveJsonMode(enabled: Boolean) {
+        settings.putBoolean(KEY_JSON_MODE, enabled)
+        Napier.d("JSON mode ${if (enabled) "enabled" else "disabled"}")
     }
 
     fun getMessages(): List<Message> {

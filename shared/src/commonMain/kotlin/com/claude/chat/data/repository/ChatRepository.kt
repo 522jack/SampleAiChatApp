@@ -51,6 +51,16 @@ interface ChatRepository {
     suspend fun saveSystemPrompt(prompt: String)
 
     /**
+     * Get JSON mode setting
+     */
+    suspend fun getJsonMode(): Boolean
+
+    /**
+     * Save JSON mode setting
+     */
+    suspend fun saveJsonMode(enabled: Boolean)
+
+    /**
      * Check if API key is configured
      */
     suspend fun isApiKeyConfigured(): Boolean

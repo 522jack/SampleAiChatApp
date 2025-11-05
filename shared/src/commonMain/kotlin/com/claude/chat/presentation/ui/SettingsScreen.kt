@@ -156,6 +156,39 @@ fun SettingsScreen(
                 }
             }
 
+            // JSON Mode Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "JSON Response Format",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            "Enable to receive responses in JSON format",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = state.jsonModeEnabled,
+                        onCheckedChange = { onIntent(SettingsIntent.ToggleJsonMode(it)) }
+                    )
+                }
+            }
+
             // Clear Data Section
             Card(
                 modifier = Modifier.fillMaxWidth(),

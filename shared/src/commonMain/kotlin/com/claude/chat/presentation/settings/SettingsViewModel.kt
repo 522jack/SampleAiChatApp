@@ -28,6 +28,7 @@ class SettingsViewModel(
         when (intent) {
             is SettingsIntent.SaveApiKey -> saveApiKey(intent.apiKey)
             is SettingsIntent.SaveSystemPrompt -> saveSystemPrompt(intent.prompt)
+            is SettingsIntent.ToggleJsonMode -> toggleJsonMode(intent.enabled)
             is SettingsIntent.ClearAllData -> clearAllData()
             is SettingsIntent.ClearApiKey -> clearApiKey()
             is SettingsIntent.UpdateApiKeyInput -> updateApiKeyInput(intent.apiKey)
@@ -40,6 +41,7 @@ class SettingsViewModel(
             try {
                 val apiKey = repository.getApiKey() ?: ""
                 val systemPrompt = repository.getSystemPrompt() ?: ""
+                val jsonMode = repository.getJsonMode()
 
                 // Log key info for debugging
                 if (apiKey.isNotBlank()) {
@@ -55,6 +57,7 @@ class SettingsViewModel(
                     it.copy(
                         apiKey = apiKey,
                         systemPrompt = systemPrompt,
+                        jsonModeEnabled = jsonMode,
                         isLoading = false
                     )
                 }
@@ -193,6 +196,27 @@ class SettingsViewModel(
         }
     }
 
+    private fun toggleJsonMode(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.saveJsonMode(enabled)
+                _state.update {
+                    it.copy(
+                        jsonModeEnabled = enabled
+                    )
+                }
+                Napier.d("JSON mode ${if (enabled) "enabled" else "disabled"}")
+            } catch (e: Exception) {
+                Napier.e("Error toggling JSON mode", e)
+                _state.update {
+                    it.copy(
+                        error = "Failed to update JSON mode setting"
+                    )
+                }
+            }
+        }
+    }
+
     fun resetSaveSuccess() {
         _state.update { it.copy(saveSuccess = false) }
     }
@@ -204,6 +228,7 @@ class SettingsViewModel(
 data class SettingsUiState(
     val apiKey: String = "",
     val systemPrompt: String = "",
+    val jsonModeEnabled: Boolean = false,
     val isLoading: Boolean = true,
     val error: String? = null,
     val saveSuccess: Boolean = false
@@ -215,6 +240,7 @@ data class SettingsUiState(
 sealed class SettingsIntent {
     data class SaveApiKey(val apiKey: String) : SettingsIntent()
     data class SaveSystemPrompt(val prompt: String) : SettingsIntent()
+    data class ToggleJsonMode(val enabled: Boolean) : SettingsIntent()
     data object ClearAllData : SettingsIntent()
     data object ClearApiKey : SettingsIntent()
     data class UpdateApiKeyInput(val apiKey: String) : SettingsIntent()
