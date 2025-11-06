@@ -61,6 +61,16 @@ interface ChatRepository {
     suspend fun saveJsonMode(enabled: Boolean)
 
     /**
+     * Get Tech Spec mode setting
+     */
+    suspend fun getTechSpecMode(): Boolean
+
+    /**
+     * Save Tech Spec mode setting
+     */
+    suspend fun saveTechSpecMode(enabled: Boolean)
+
+    /**
      * Check if API key is configured
      */
     suspend fun isApiKeyConfigured(): Boolean

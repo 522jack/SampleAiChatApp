@@ -189,6 +189,39 @@ fun SettingsScreen(
                 }
             }
 
+            // Tech Spec Mode Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "Technical Specification Mode",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            "Agent will ask 5 clarifying questions before creating a specification",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = state.techSpecModeEnabled,
+                        onCheckedChange = { onIntent(SettingsIntent.ToggleTechSpecMode(it)) }
+                    )
+                }
+            }
+
             // Clear Data Section
             Card(
                 modifier = Modifier.fillMaxWidth(),

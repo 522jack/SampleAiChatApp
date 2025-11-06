@@ -25,6 +25,7 @@ class SettingsStorage(
         private const val KEY_SYSTEM_PROMPT = "system_prompt"
         private const val KEY_MESSAGES = "messages_history"
         private const val KEY_JSON_MODE = "json_mode"
+        private const val KEY_TECH_SPEC_MODE = "tech_spec_mode"
     }
 
     fun getApiKey(): String? {
@@ -51,6 +52,15 @@ class SettingsStorage(
     fun saveJsonMode(enabled: Boolean) {
         settings.putBoolean(KEY_JSON_MODE, enabled)
         Napier.d("JSON mode ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun getTechSpecMode(): Boolean {
+        return settings.getBoolean(KEY_TECH_SPEC_MODE, false)
+    }
+
+    fun saveTechSpecMode(enabled: Boolean) {
+        settings.putBoolean(KEY_TECH_SPEC_MODE, enabled)
+        Napier.d("Tech Spec mode ${if (enabled) "enabled" else "disabled"}")
     }
 
     fun getMessages(): List<Message> {

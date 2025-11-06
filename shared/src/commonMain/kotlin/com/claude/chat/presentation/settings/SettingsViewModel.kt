@@ -29,6 +29,7 @@ class SettingsViewModel(
             is SettingsIntent.SaveApiKey -> saveApiKey(intent.apiKey)
             is SettingsIntent.SaveSystemPrompt -> saveSystemPrompt(intent.prompt)
             is SettingsIntent.ToggleJsonMode -> toggleJsonMode(intent.enabled)
+            is SettingsIntent.ToggleTechSpecMode -> toggleTechSpecMode(intent.enabled)
             is SettingsIntent.ClearAllData -> clearAllData()
             is SettingsIntent.ClearApiKey -> clearApiKey()
             is SettingsIntent.UpdateApiKeyInput -> updateApiKeyInput(intent.apiKey)
@@ -42,6 +43,7 @@ class SettingsViewModel(
                 val apiKey = repository.getApiKey() ?: ""
                 val systemPrompt = repository.getSystemPrompt() ?: ""
                 val jsonMode = repository.getJsonMode()
+                val techSpecMode = repository.getTechSpecMode()
 
                 // Log key info for debugging
                 if (apiKey.isNotBlank()) {
@@ -58,6 +60,7 @@ class SettingsViewModel(
                         apiKey = apiKey,
                         systemPrompt = systemPrompt,
                         jsonModeEnabled = jsonMode,
+                        techSpecModeEnabled = techSpecMode,
                         isLoading = false
                     )
                 }
@@ -217,6 +220,27 @@ class SettingsViewModel(
         }
     }
 
+    private fun toggleTechSpecMode(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.saveTechSpecMode(enabled)
+                _state.update {
+                    it.copy(
+                        techSpecModeEnabled = enabled
+                    )
+                }
+                Napier.d("Tech Spec mode ${if (enabled) "enabled" else "disabled"}")
+            } catch (e: Exception) {
+                Napier.e("Error toggling Tech Spec mode", e)
+                _state.update {
+                    it.copy(
+                        error = "Failed to update Tech Spec mode setting"
+                    )
+                }
+            }
+        }
+    }
+
     fun resetSaveSuccess() {
         _state.update { it.copy(saveSuccess = false) }
     }
@@ -229,6 +253,7 @@ data class SettingsUiState(
     val apiKey: String = "",
     val systemPrompt: String = "",
     val jsonModeEnabled: Boolean = false,
+    val techSpecModeEnabled: Boolean = false,
     val isLoading: Boolean = true,
     val error: String? = null,
     val saveSuccess: Boolean = false
@@ -241,6 +266,7 @@ sealed class SettingsIntent {
     data class SaveApiKey(val apiKey: String) : SettingsIntent()
     data class SaveSystemPrompt(val prompt: String) : SettingsIntent()
     data class ToggleJsonMode(val enabled: Boolean) : SettingsIntent()
+    data class ToggleTechSpecMode(val enabled: Boolean) : SettingsIntent()
     data object ClearAllData : SettingsIntent()
     data object ClearApiKey : SettingsIntent()
     data class UpdateApiKeyInput(val apiKey: String) : SettingsIntent()

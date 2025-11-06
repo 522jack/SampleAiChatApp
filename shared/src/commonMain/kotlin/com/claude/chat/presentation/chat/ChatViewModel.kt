@@ -26,6 +26,7 @@ class ChatViewModel(
     init {
         loadMessages()
         checkApiKey()
+        loadTechSpecMode()
     }
 
     fun onIntent(intent: ChatIntent) {
@@ -46,6 +47,18 @@ class ChatViewModel(
                 _state.update { it.copy(isApiKeyConfigured = isConfigured) }
             } catch (e: Exception) {
                 Napier.e("Error checking API key", e)
+            }
+        }
+    }
+
+    private fun loadTechSpecMode() {
+        viewModelScope.launch {
+            try {
+                val isTechSpecMode = repository.getTechSpecMode()
+                _state.update { it.copy(isTechSpecMode = isTechSpecMode) }
+                Napier.d("Tech Spec mode loaded: $isTechSpecMode")
+            } catch (e: Exception) {
+                Napier.e("Error loading Tech Spec mode", e)
             }
         }
     }
@@ -87,13 +100,21 @@ class ChatViewModel(
                 // Save messages
                 repository.saveMessages(updatedMessages)
 
+                // Determine system prompt based on Tech Spec mode
+                val baseSystemPrompt = repository.getSystemPrompt() ?: "You are a helpful assistant."
+                val systemPrompt = if (_state.value.isTechSpecMode) {
+                    buildTechSpecSystemPrompt(text, baseSystemPrompt)
+                } else {
+                    baseSystemPrompt
+                }
+
                 // Get streaming response
                 val assistantMessageId = Uuid.random().toString()
                 var assistantContent = ""
 
                 repository.sendMessage(
                     messages = updatedMessages,
-                    systemPrompt = repository.getSystemPrompt()
+                    systemPrompt = systemPrompt
                 ).catch { error ->
                     Napier.e("Error receiving message", error)
 
@@ -140,6 +161,11 @@ class ChatViewModel(
                     _state.update { it.copy(messages = newMessages) }
                 }
 
+                // Update Tech Spec state after receiving response
+                if (_state.value.isTechSpecMode) {
+                    updateTechSpecState(text, assistantContent)
+                }
+
                 // Save final messages
                 _state.update { it.copy(isLoading = false) }
                 repository.saveMessages(_state.value.messages)
@@ -156,11 +182,112 @@ class ChatViewModel(
         }
     }
 
+    private fun buildTechSpecSystemPrompt(userText: String, basePrompt: String): String {
+        return when {
+            // First message: initiate questions
+            _state.value.techSpecInitialRequest == null -> {
+                """You are an AI assistant helping to create a technical specification through a structured interview process.
+
+CRITICAL RULES:
+1. You MUST ask EXACTLY ONE question in your response
+2. Do NOT provide multiple questions or numbered lists of questions
+3. Do NOT create a specification yet - only ask ONE clarifying question
+4. Your entire response should be a SINGLE question about the user's request
+
+The user's request is: "$userText"
+
+Your task: Ask the FIRST clarifying question to better understand their requirements. Make it specific and relevant to creating a technical specification.
+
+Remember: ONE QUESTION ONLY. Stop after asking it."""
+            }
+            // Questions 2-5: continue asking
+            _state.value.techSpecQuestionsAsked < 5 -> {
+                val questionNumber = _state.value.techSpecQuestionsAsked + 1
+                val questionsLeft = 5 - _state.value.techSpecQuestionsAsked
+                """You are continuing a structured interview to create a technical specification.
+
+CRITICAL RULES:
+1. You MUST ask EXACTLY ONE question in your response
+2. Do NOT provide multiple questions or numbered lists
+3. Do NOT create the specification yet
+4. Your entire response should be ONE SINGLE question
+
+Context:
+- Original request: "${_state.value.techSpecInitialRequest}"
+- You have already asked ${_state.value.techSpecQuestionsAsked} question(s)
+- This will be question #$questionNumber out of 5
+- You have $questionsLeft questions remaining after this one
+
+Task: Ask question #$questionNumber. Make it build on the previous answers to gather comprehensive requirements.
+
+Remember: ONE QUESTION ONLY. Stop immediately after asking it."""
+            }
+            // All questions collected: create specification
+            else -> {
+                """You have completed a structured interview with 5 clarifying questions about a technical specification request.
+
+Original request: "${_state.value.techSpecInitialRequest}"
+
+You have asked 5 clarifying questions and received answers to all of them. Now you MUST create a comprehensive technical specification document.
+
+CRITICAL: Do NOT ask any more questions. Create the specification now.
+
+The technical specification should include:
+- Project Overview: Brief description and goals
+- Functional Requirements: What the system should do
+- Technical Requirements: Technologies, platforms, performance needs
+- User Interface Requirements: If applicable, UI/UX considerations
+- Data Requirements: Data structures, storage, security
+- System Architecture: High-level design overview
+- Testing Requirements: Testing strategy and criteria
+- Deployment Requirements: Deployment process and environment
+
+Format the specification with clear markdown sections and subsections. Be comprehensive and detailed based on all the information gathered."""
+            }
+        }
+    }
+
+    private fun updateTechSpecState(userText: String, assistantResponse: String) {
+        _state.update { currentState ->
+            when {
+                // First message: save initial request and increment counter
+                currentState.techSpecInitialRequest == null -> {
+                    Napier.d("Tech Spec: Saved initial request and asked first question")
+                    currentState.copy(
+                        techSpecInitialRequest = userText,
+                        techSpecQuestionsAsked = 1
+                    )
+                }
+                // Questions 2-5: increment counter
+                currentState.techSpecQuestionsAsked < 5 -> {
+                    val newCount = currentState.techSpecQuestionsAsked + 1
+                    Napier.d("Tech Spec: Asked question $newCount of 5")
+                    currentState.copy(techSpecQuestionsAsked = newCount)
+                }
+                // All questions collected: reset state for next session
+                else -> {
+                    Napier.d("Tech Spec: Created final specification, resetting state")
+                    currentState.copy(
+                        techSpecInitialRequest = null,
+                        techSpecQuestionsAsked = 0
+                    )
+                }
+            }
+        }
+    }
+
     private fun clearHistory() {
         viewModelScope.launch {
             try {
                 repository.clearMessages()
-                _state.update { it.copy(messages = emptyList(), error = null) }
+                _state.update {
+                    it.copy(
+                        messages = emptyList(),
+                        error = null,
+                        techSpecInitialRequest = null,
+                        techSpecQuestionsAsked = 0
+                    )
+                }
             } catch (e: Exception) {
                 Napier.e("Error clearing history", e)
                 _state.update { it.copy(error = "Failed to clear history") }
@@ -197,7 +324,10 @@ data class ChatUiState(
     val messages: List<Message> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
-    val isApiKeyConfigured: Boolean = false
+    val isApiKeyConfigured: Boolean = false,
+    val isTechSpecMode: Boolean = false,
+    val techSpecInitialRequest: String? = null,
+    val techSpecQuestionsAsked: Int = 0
 )
 
 /**

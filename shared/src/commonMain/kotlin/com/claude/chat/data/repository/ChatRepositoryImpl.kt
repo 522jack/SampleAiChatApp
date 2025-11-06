@@ -123,6 +123,14 @@ Always use exactly "$currentDate" as the date value. Do not include any text out
         settingsStorage.saveJsonMode(enabled)
     }
 
+    override suspend fun getTechSpecMode(): Boolean {
+        return settingsStorage.getTechSpecMode()
+    }
+
+    override suspend fun saveTechSpecMode(enabled: Boolean) {
+        settingsStorage.saveTechSpecMode(enabled)
+    }
+
     override suspend fun isApiKeyConfigured(): Boolean {
         return !getApiKey().isNullOrBlank()
     }
