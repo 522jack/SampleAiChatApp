@@ -26,6 +26,8 @@ class SettingsStorage(
         private const val KEY_MESSAGES = "messages_history"
         private const val KEY_JSON_MODE = "json_mode"
         private const val KEY_TECH_SPEC_MODE = "tech_spec_mode"
+        private const val KEY_SELECTED_MODEL = "selected_model"
+        private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
     }
 
     fun getApiKey(): String? {
@@ -61,6 +63,15 @@ class SettingsStorage(
     fun saveTechSpecMode(enabled: Boolean) {
         settings.putBoolean(KEY_TECH_SPEC_MODE, enabled)
         Napier.d("Tech Spec mode ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun getSelectedModel(): String {
+        return settings.getString(KEY_SELECTED_MODEL, DEFAULT_MODEL)
+    }
+
+    fun saveSelectedModel(modelId: String) {
+        settings.putString(KEY_SELECTED_MODEL, modelId)
+        Napier.d("Selected model: $modelId")
     }
 
     fun getMessages(): List<Message> {

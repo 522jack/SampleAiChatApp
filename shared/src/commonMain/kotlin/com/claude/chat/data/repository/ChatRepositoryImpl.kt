@@ -27,7 +27,6 @@ class ChatRepositoryImpl(
     }
 
     companion object {
-        private const val MODEL = "claude-3-5-haiku-20241022"
         private const val MAX_TOKENS = 8192
         private const val DEFAULT_SYSTEM_PROMPT = "You are Claude, a helpful AI assistant."
     }
@@ -60,22 +59,24 @@ class ChatRepositoryImpl(
 
             """$basePrompt
 
-Today's date is: $currentDate
-
-IMPORTANT: You must respond ONLY with valid JSON in the following format:
-{
-  "question": "the user's question or request",
-  "answer": "your detailed answer",
-  "date": "$currentDate"
-}
-
-Always use exactly "$currentDate" as the date value. Do not include any text outside of this JSON structure. The entire response must be valid JSON."""
+                Today's date is: $currentDate
+                
+                IMPORTANT: You must respond ONLY with valid JSON in the following format:
+                {
+                "question": "the user's question or request",
+                "answer": "your detailed answer",
+                "date": "$currentDate"
+                }
+                
+                Always use exactly "$currentDate" as the date value. Do not include any text outside of this JSON structure. The entire response must be valid JSON."""
         } else {
             systemPrompt ?: DEFAULT_SYSTEM_PROMPT
         }
 
+        val selectedModel = getSelectedModel()
+
         val request = ClaudeMessageRequest(
-            model = MODEL,
+            model = selectedModel,
             messages = claudeMessages,
             maxTokens = MAX_TOKENS,
             stream = true,
@@ -129,6 +130,14 @@ Always use exactly "$currentDate" as the date value. Do not include any text out
 
     override suspend fun saveTechSpecMode(enabled: Boolean) {
         settingsStorage.saveTechSpecMode(enabled)
+    }
+
+    override suspend fun getSelectedModel(): String {
+        return settingsStorage.getSelectedModel()
+    }
+
+    override suspend fun saveSelectedModel(modelId: String) {
+        settingsStorage.saveSelectedModel(modelId)
     }
 
     override suspend fun isApiKeyConfigured(): Boolean {

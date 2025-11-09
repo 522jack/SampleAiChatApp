@@ -47,6 +47,12 @@ fun ChatScreen(
             TopAppBar(
                 title = { Text("Claude Chat") },
                 actions = {
+                    ModelSelector(
+                        selectedModel = state.selectedModel,
+                        onModelSelected = { modelId ->
+                            onIntent(ChatIntent.SelectModel(modelId))
+                        }
+                    )
                     IconButton(onClick = {
                         onIntent(ChatIntent.ClearHistory)
                     }) {

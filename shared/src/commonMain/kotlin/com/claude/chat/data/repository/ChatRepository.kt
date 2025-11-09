@@ -71,6 +71,16 @@ interface ChatRepository {
     suspend fun saveTechSpecMode(enabled: Boolean)
 
     /**
+     * Get selected model
+     */
+    suspend fun getSelectedModel(): String
+
+    /**
+     * Save selected model
+     */
+    suspend fun saveSelectedModel(modelId: String)
+
+    /**
      * Check if API key is configured
      */
     suspend fun isApiKeyConfigured(): Boolean

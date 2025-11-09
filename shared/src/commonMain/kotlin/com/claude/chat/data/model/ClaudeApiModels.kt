@@ -84,3 +84,27 @@ data class ClaudeStreamDelta(
     @SerialName("stop_reason")
     val stopReason: String? = null
 )
+
+/**
+ * Available Claude models via API
+ */
+enum class ClaudeModel(
+    val modelId: String,
+    val displayName: String,
+    val description: String
+) {
+    SONNET_4_5("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5", "Most capable model"),
+    SONNET_4("claude-sonnet-4-20250514", "Claude Sonnet 4", "High performance"),
+    SONNET_3_7("claude-3-7-sonnet-20250219", "Claude 3.7 Sonnet", "Advanced reasoning"),
+    SONNET_3_5("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet", "High intelligence"),
+    HAIKU_3_5("claude-3-5-haiku-20241022", "Claude 3.5 Haiku", "Fast and efficient"),
+    OPUS_3("claude-3-opus-20240229", "Claude 3 Opus", "Powerful reasoning"),
+    SONNET_3("claude-3-sonnet-20240229", "Claude 3 Sonnet", "Balanced"),
+    HAIKU_3("claude-3-haiku-20240307", "Claude 3 Haiku", "Fastest response");
+
+    companion object {
+        fun fromModelId(modelId: String): ClaudeModel {
+            return entries.find { it.modelId == modelId } ?: HAIKU_3_5
+        }
+    }
+}

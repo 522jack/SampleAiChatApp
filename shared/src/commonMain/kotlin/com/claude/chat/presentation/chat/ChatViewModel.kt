@@ -27,6 +27,7 @@ class ChatViewModel(
         loadMessages()
         checkApiKey()
         loadTechSpecMode()
+        loadSelectedModel()
     }
 
     fun onIntent(intent: ChatIntent) {
@@ -37,6 +38,7 @@ class ChatViewModel(
             is ChatIntent.CopyMessage -> copyMessage(intent.message)
             is ChatIntent.LoadMessages -> loadMessages()
             is ChatIntent.CheckApiKey -> checkApiKey()
+            is ChatIntent.SelectModel -> selectModel(intent.modelId)
         }
     }
 
@@ -59,6 +61,30 @@ class ChatViewModel(
                 Napier.d("Tech Spec mode loaded: $isTechSpecMode")
             } catch (e: Exception) {
                 Napier.e("Error loading Tech Spec mode", e)
+            }
+        }
+    }
+
+    private fun loadSelectedModel() {
+        viewModelScope.launch {
+            try {
+                val selectedModel = repository.getSelectedModel()
+                _state.update { it.copy(selectedModel = selectedModel) }
+                Napier.d("Selected model loaded: $selectedModel")
+            } catch (e: Exception) {
+                Napier.e("Error loading selected model", e)
+            }
+        }
+    }
+
+    private fun selectModel(modelId: String) {
+        viewModelScope.launch {
+            try {
+                repository.saveSelectedModel(modelId)
+                _state.update { it.copy(selectedModel = modelId) }
+                Napier.d("Model selected: $modelId")
+            } catch (e: Exception) {
+                Napier.e("Error selecting model", e)
             }
         }
     }
@@ -327,7 +353,8 @@ data class ChatUiState(
     val isApiKeyConfigured: Boolean = false,
     val isTechSpecMode: Boolean = false,
     val techSpecInitialRequest: String? = null,
-    val techSpecQuestionsAsked: Int = 0
+    val techSpecQuestionsAsked: Int = 0,
+    val selectedModel: String = "claude-3-5-haiku-20241022"
 )
 
 /**
@@ -340,4 +367,5 @@ sealed class ChatIntent {
     data class CopyMessage(val message: Message) : ChatIntent()
     data object LoadMessages : ChatIntent()
     data object CheckApiKey : ChatIntent()
+    data class SelectModel(val modelId: String) : ChatIntent()
 }
