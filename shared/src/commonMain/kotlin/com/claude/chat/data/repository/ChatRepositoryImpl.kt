@@ -11,8 +11,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
  * Implementation of ChatRepository
@@ -21,10 +19,6 @@ class ChatRepositoryImpl(
     private val apiClient: ClaudeApiClient,
     private val settingsStorage: SettingsStorage
 ) : ChatRepository {
-
-    private val json = Json {
-        ignoreUnknownKeys = true
-    }
 
     companion object {
         private const val MAX_TOKENS = 8192
@@ -74,13 +68,15 @@ class ChatRepositoryImpl(
         }
 
         val selectedModel = getSelectedModel()
+        val temperature = getTemperature()
 
         val request = ClaudeMessageRequest(
             model = selectedModel,
             messages = claudeMessages,
             maxTokens = MAX_TOKENS,
             stream = true,
-            system = finalSystemPrompt
+            system = finalSystemPrompt,
+            temperature = temperature
         )
 
         Napier.d("Sending message to Claude API with ${messages.size} messages, JSON mode: $jsonModeEnabled")
@@ -138,6 +134,14 @@ class ChatRepositoryImpl(
 
     override suspend fun saveSelectedModel(modelId: String) {
         settingsStorage.saveSelectedModel(modelId)
+    }
+
+    override suspend fun getTemperature(): Double {
+        return settingsStorage.getTemperature()
+    }
+
+    override suspend fun saveTemperature(temperature: Double) {
+        settingsStorage.saveTemperature(temperature)
     }
 
     override suspend fun isApiKeyConfigured(): Boolean {

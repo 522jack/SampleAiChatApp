@@ -81,6 +81,16 @@ interface ChatRepository {
     suspend fun saveSelectedModel(modelId: String)
 
     /**
+     * Get temperature setting
+     */
+    suspend fun getTemperature(): Double
+
+    /**
+     * Save temperature setting
+     */
+    suspend fun saveTemperature(temperature: Double)
+
+    /**
      * Check if API key is configured
      */
     suspend fun isApiKeyConfigured(): Boolean

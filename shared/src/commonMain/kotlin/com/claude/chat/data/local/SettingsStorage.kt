@@ -27,7 +27,9 @@ class SettingsStorage(
         private const val KEY_JSON_MODE = "json_mode"
         private const val KEY_TECH_SPEC_MODE = "tech_spec_mode"
         private const val KEY_SELECTED_MODEL = "selected_model"
+        private const val KEY_TEMPERATURE = "temperature"
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
+        private const val DEFAULT_TEMPERATURE = 1.0
     }
 
     fun getApiKey(): String? {
@@ -72,6 +74,15 @@ class SettingsStorage(
     fun saveSelectedModel(modelId: String) {
         settings.putString(KEY_SELECTED_MODEL, modelId)
         Napier.d("Selected model: $modelId")
+    }
+
+    fun getTemperature(): Double {
+        return settings.getDouble(KEY_TEMPERATURE, DEFAULT_TEMPERATURE)
+    }
+
+    fun saveTemperature(temperature: Double) {
+        settings.putDouble(KEY_TEMPERATURE, temperature)
+        Napier.d("Temperature set to: $temperature")
     }
 
     fun getMessages(): List<Message> {

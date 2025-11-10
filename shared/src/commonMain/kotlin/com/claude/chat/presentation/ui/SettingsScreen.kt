@@ -1,6 +1,8 @@
 package com.claude.chat.presentation.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -52,6 +54,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -152,6 +155,43 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Save System Prompt")
+                    }
+                }
+            }
+
+            // Temperature Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Temperature",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Text(
+                        "Controls randomness in responses. Range: 0.0 (focused) to 1.0 (creative)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = state.temperature,
+                        onValueChange = { onIntent(SettingsIntent.UpdateTemperatureInput(it)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Temperature") },
+                        placeholder = { Text("1.0") },
+                        singleLine = true
+                    )
+
+                    Button(
+                        onClick = { onIntent(SettingsIntent.SaveTemperature(state.temperature)) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Save Temperature")
                     }
                 }
             }

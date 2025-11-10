@@ -34,6 +34,8 @@ class SettingsViewModel(
             is SettingsIntent.ClearApiKey -> clearApiKey()
             is SettingsIntent.UpdateApiKeyInput -> updateApiKeyInput(intent.apiKey)
             is SettingsIntent.UpdateSystemPromptInput -> updateSystemPromptInput(intent.prompt)
+            is SettingsIntent.UpdateTemperatureInput -> updateTemperatureInput(intent.temperature)
+            is SettingsIntent.SaveTemperature -> saveTemperature(intent.temperature)
         }
     }
 
@@ -44,6 +46,7 @@ class SettingsViewModel(
                 val systemPrompt = repository.getSystemPrompt() ?: ""
                 val jsonMode = repository.getJsonMode()
                 val techSpecMode = repository.getTechSpecMode()
+                val temperature = repository.getTemperature()
 
                 // Log key info for debugging
                 if (apiKey.isNotBlank()) {
@@ -61,6 +64,7 @@ class SettingsViewModel(
                         systemPrompt = systemPrompt,
                         jsonModeEnabled = jsonMode,
                         techSpecModeEnabled = techSpecMode,
+                        temperature = temperature.toString(),
                         isLoading = false
                     )
                 }
@@ -82,6 +86,54 @@ class SettingsViewModel(
 
     private fun updateSystemPromptInput(prompt: String) {
         _state.update { it.copy(systemPrompt = prompt) }
+    }
+
+    private fun updateTemperatureInput(temperature: String) {
+        _state.update { it.copy(temperature = temperature) }
+    }
+
+    private fun saveTemperature(temperatureStr: String) {
+        viewModelScope.launch {
+            try {
+                val temperature = temperatureStr.toDoubleOrNull()
+                if (temperature == null) {
+                    _state.update {
+                        it.copy(
+                            error = "Invalid temperature value. Please enter a number.",
+                            saveSuccess = false
+                        )
+                    }
+                    return@launch
+                }
+
+                if (temperature !in 0.0..1.0) {
+                    _state.update {
+                        it.copy(
+                            error = "Temperature must be between 0.0 and 1.0",
+                            saveSuccess = false
+                        )
+                    }
+                    return@launch
+                }
+
+                repository.saveTemperature(temperature)
+                _state.update {
+                    it.copy(
+                        saveSuccess = true,
+                        error = null
+                    )
+                }
+                Napier.d("Temperature saved successfully: $temperature")
+            } catch (e: Exception) {
+                Napier.e("Error saving temperature", e)
+                _state.update {
+                    it.copy(
+                        error = "Failed to save temperature: ${e.message}",
+                        saveSuccess = false
+                    )
+                }
+            }
+        }
     }
 
     private fun saveApiKey(apiKey: String) {
@@ -254,6 +306,7 @@ data class SettingsUiState(
     val systemPrompt: String = "",
     val jsonModeEnabled: Boolean = false,
     val techSpecModeEnabled: Boolean = false,
+    val temperature: String = "1.0",
     val isLoading: Boolean = true,
     val error: String? = null,
     val saveSuccess: Boolean = false
@@ -271,4 +324,6 @@ sealed class SettingsIntent {
     data object ClearApiKey : SettingsIntent()
     data class UpdateApiKeyInput(val apiKey: String) : SettingsIntent()
     data class UpdateSystemPromptInput(val prompt: String) : SettingsIntent()
+    data class UpdateTemperatureInput(val temperature: String) : SettingsIntent()
+    data class SaveTemperature(val temperature: String) : SettingsIntent()
 }
