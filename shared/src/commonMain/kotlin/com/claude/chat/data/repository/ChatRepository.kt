@@ -1,6 +1,7 @@
 package com.claude.chat.data.repository
 
 import com.claude.chat.domain.model.Message
+import com.claude.chat.domain.model.ModelComparisonResponse
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -14,6 +15,14 @@ interface ChatRepository {
         messages: List<Message>,
         systemPrompt: String? = null
     ): Flow<String>
+
+    /**
+     * Send a message to multiple models and get comparison responses
+     */
+    suspend fun sendMessageComparison(
+        messages: List<Message>,
+        systemPrompt: String? = null
+    ): Result<ModelComparisonResponse>
 
     /**
      * Get all messages from history
@@ -89,6 +98,16 @@ interface ChatRepository {
      * Save temperature setting
      */
     suspend fun saveTemperature(temperature: Double)
+
+    /**
+     * Get model comparison mode setting
+     */
+    suspend fun getModelComparisonMode(): Boolean
+
+    /**
+     * Save model comparison mode setting
+     */
+    suspend fun saveModelComparisonMode(enabled: Boolean)
 
     /**
      * Check if API key is configured

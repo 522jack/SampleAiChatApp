@@ -26,65 +26,92 @@ fun MessageBubble(
     modifier: Modifier = Modifier
 ) {
     val isUser = message.role == MessageRole.USER
-    val bubbleColor = when {
-        message.isError -> MaterialTheme.colorScheme.errorContainer
-        isUser -> MaterialTheme.colorScheme.primaryContainer
-        else -> MaterialTheme.colorScheme.secondaryContainer
-    }
 
-    val textColor = when {
-        message.isError -> MaterialTheme.colorScheme.onErrorContainer
-        isUser -> MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.onSecondaryContainer
-    }
-
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
-    ) {
-        Card(
-            modifier = Modifier.widthIn(max = 320.dp),
-            shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
-            ),
-            colors = CardDefaults.cardColors(
-                containerColor = bubbleColor
-            )
+    // Check if this is a comparison response
+    if (message.comparisonResponse != null) {
+        // Display comparison card for assistant messages with comparison data
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ModelComparisonCard(comparisonResponse = message.comparisonResponse)
+
+            // Timestamp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start
             ) {
                 Text(
-                    text = message.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = textColor
+                    text = formatTimestamp(message.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
+            }
+        }
+    } else {
+        // Regular message bubble
+        val bubbleColor = when {
+            message.isError -> MaterialTheme.colorScheme.errorContainer
+            isUser -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.secondaryContainer
+        }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+        val textColor = when {
+            message.isError -> MaterialTheme.colorScheme.onErrorContainer
+            isUser -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> MaterialTheme.colorScheme.onSecondaryContainer
+        }
+
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+        ) {
+            Card(
+                modifier = Modifier.widthIn(max = 320.dp),
+                shape = RoundedCornerShape(
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = if (isUser) 16.dp else 4.dp,
+                    bottomEnd = if (isUser) 4.dp else 16.dp
+                ),
+                colors = CardDefaults.cardColors(
+                    containerColor = bubbleColor
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = formatTimestamp(message.timestamp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = textColor.copy(alpha = 0.7f)
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor
                     )
 
-                    IconButton(
-                        onClick = onCopy,
-                        modifier = Modifier.size(20.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = "Copy message",
-                            modifier = Modifier.size(16.dp),
-                            tint = textColor.copy(alpha = 0.7f)
+                        Text(
+                            text = formatTimestamp(message.timestamp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = textColor.copy(alpha = 0.7f)
                         )
+
+                        IconButton(
+                            onClick = onCopy,
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy message",
+                                modifier = Modifier.size(16.dp),
+                                tint = textColor.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
             }

@@ -28,6 +28,7 @@ class SettingsStorage(
         private const val KEY_TECH_SPEC_MODE = "tech_spec_mode"
         private const val KEY_SELECTED_MODEL = "selected_model"
         private const val KEY_TEMPERATURE = "temperature"
+        private const val KEY_MODEL_COMPARISON_MODE = "model_comparison_mode"
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
         private const val DEFAULT_TEMPERATURE = 1.0
     }
@@ -83,6 +84,15 @@ class SettingsStorage(
     fun saveTemperature(temperature: Double) {
         settings.putDouble(KEY_TEMPERATURE, temperature)
         Napier.d("Temperature set to: $temperature")
+    }
+
+    fun getModelComparisonMode(): Boolean {
+        return settings.getBoolean(KEY_MODEL_COMPARISON_MODE, false)
+    }
+
+    fun saveModelComparisonMode(enabled: Boolean) {
+        settings.putBoolean(KEY_MODEL_COMPARISON_MODE, enabled)
+        Napier.d("Model comparison mode ${if (enabled) "enabled" else "disabled"}")
     }
 
     fun getMessages(): List<Message> {

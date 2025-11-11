@@ -46,9 +46,10 @@ fun App(
     ) {
         when (currentScreen) {
             Screen.Chat -> {
-                // Check API key when returning to chat screen
+                // Reload settings when returning to chat screen
                 LaunchedEffect(chatScreenCounter) {
                     chatViewModel.onIntent(com.claude.chat.presentation.chat.ChatIntent.CheckApiKey)
+                    chatViewModel.onIntent(com.claude.chat.presentation.chat.ChatIntent.ReloadSettings)
                 }
 
                 ChatScreen(
@@ -64,7 +65,7 @@ fun App(
                     onIntent = settingsViewModel::onIntent,
                     onNavigateBack = {
                         currentScreen = Screen.Chat
-                        chatScreenCounter++ // Trigger API key check
+                        chatScreenCounter++ // Trigger settings reload
                     },
                     modifier = Modifier.fillMaxSize()
                 )

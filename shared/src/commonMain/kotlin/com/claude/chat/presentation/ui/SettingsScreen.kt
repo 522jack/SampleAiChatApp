@@ -262,6 +262,39 @@ fun SettingsScreen(
                 }
             }
 
+            // Model Comparison Mode Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "Model Comparison Mode",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            "Get responses from 3 models (Haiku 3, Sonnet 3.7, Sonnet 4.5) with metrics",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = state.modelComparisonModeEnabled,
+                        onCheckedChange = { onIntent(SettingsIntent.ToggleModelComparisonMode(it)) }
+                    )
+                }
+            }
+
             // Clear Data Section
             Card(
                 modifier = Modifier.fillMaxWidth(),

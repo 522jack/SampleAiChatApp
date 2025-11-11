@@ -10,7 +10,8 @@ data class Message(
     val content: String,
     val role: MessageRole,
     val timestamp: Instant,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val comparisonResponse: ModelComparisonResponse? = null
 )
 
 enum class MessageRole {

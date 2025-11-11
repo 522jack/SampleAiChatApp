@@ -47,12 +47,23 @@ fun ChatScreen(
             TopAppBar(
                 title = { Text("Claude Chat") },
                 actions = {
-                    ModelSelector(
-                        selectedModel = state.selectedModel,
-                        onModelSelected = { modelId ->
-                            onIntent(ChatIntent.SelectModel(modelId))
-                        }
-                    )
+                    // Hide model selector when comparison mode is enabled
+                    if (!state.isModelComparisonMode) {
+                        ModelSelector(
+                            selectedModel = state.selectedModel,
+                            onModelSelected = { modelId ->
+                                onIntent(ChatIntent.SelectModel(modelId))
+                            }
+                        )
+                    } else {
+                        // Show indicator that comparison mode is active
+                        Text(
+                            "Comparison Mode",
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     IconButton(onClick = {
                         onIntent(ChatIntent.ClearHistory)
                     }) {

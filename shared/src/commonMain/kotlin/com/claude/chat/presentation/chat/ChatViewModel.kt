@@ -28,6 +28,7 @@ class ChatViewModel(
         checkApiKey()
         loadTechSpecMode()
         loadSelectedModel()
+        loadModelComparisonMode()
     }
 
     fun onIntent(intent: ChatIntent) {
@@ -39,7 +40,13 @@ class ChatViewModel(
             is ChatIntent.LoadMessages -> loadMessages()
             is ChatIntent.CheckApiKey -> checkApiKey()
             is ChatIntent.SelectModel -> selectModel(intent.modelId)
+            is ChatIntent.ReloadSettings -> reloadSettings()
         }
+    }
+
+    private fun reloadSettings() {
+        loadTechSpecMode()
+        loadModelComparisonMode()
     }
 
     private fun checkApiKey() {
@@ -73,6 +80,18 @@ class ChatViewModel(
                 Napier.d("Selected model loaded: $selectedModel")
             } catch (e: Exception) {
                 Napier.e("Error loading selected model", e)
+            }
+        }
+    }
+
+    private fun loadModelComparisonMode() {
+        viewModelScope.launch {
+            try {
+                val isComparisonMode = repository.getModelComparisonMode()
+                _state.update { it.copy(isModelComparisonMode = isComparisonMode) }
+                Napier.d("Model comparison mode loaded: $isComparisonMode")
+            } catch (e: Exception) {
+                Napier.e("Error loading model comparison mode", e)
             }
         }
     }
@@ -125,6 +144,13 @@ class ChatViewModel(
 
                 // Save messages
                 repository.saveMessages(updatedMessages)
+
+                // Check if model comparison mode is enabled
+                if (_state.value.isModelComparisonMode) {
+                    // Use comparison mode
+                    sendMessageComparison(updatedMessages)
+                    return@launch
+                }
 
                 // Determine system prompt based on Tech Spec mode
                 val baseSystemPrompt = repository.getSystemPrompt() ?: "You are a helpful assistant."
@@ -273,6 +299,73 @@ Format the specification with clear markdown sections and subsections. Be compre
         }
     }
 
+    private fun sendMessageComparison(messages: List<Message>) {
+        viewModelScope.launch {
+            try {
+                val systemPrompt = repository.getSystemPrompt()
+
+                // Get comparison response from repository
+                val result = repository.sendMessageComparison(messages, systemPrompt)
+
+                if (result.isFailure) {
+                    val error = result.exceptionOrNull()
+                    Napier.e("Error in comparison mode", error)
+
+                    val errorMessage = Message(
+                        id = Uuid.random().toString(),
+                        content = "Error: ${error?.message ?: "Failed to get comparison responses"}",
+                        role = MessageRole.ASSISTANT,
+                        timestamp = Clock.System.now(),
+                        isError = true
+                    )
+
+                    val messagesWithError = _state.value.messages + errorMessage
+                    _state.update {
+                        it.copy(
+                            messages = messagesWithError,
+                            isLoading = false,
+                            error = error?.message
+                        )
+                    }
+
+                    repository.saveMessages(messagesWithError)
+                    return@launch
+                }
+
+                val comparisonResponse = result.getOrThrow()
+
+                // Create assistant message with comparison response
+                val assistantMessage = Message(
+                    id = Uuid.random().toString(),
+                    content = "Model Comparison Response", // Placeholder content
+                    role = MessageRole.ASSISTANT,
+                    timestamp = Clock.System.now(),
+                    comparisonResponse = comparisonResponse
+                )
+
+                val updatedMessages = _state.value.messages + assistantMessage
+                _state.update {
+                    it.copy(
+                        messages = updatedMessages,
+                        isLoading = false
+                    )
+                }
+
+                // Save messages
+                repository.saveMessages(updatedMessages)
+
+            } catch (e: Exception) {
+                Napier.e("Error in comparison mode", e)
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Failed to get comparison responses"
+                    )
+                }
+            }
+        }
+    }
+
     private fun updateTechSpecState(userText: String, assistantResponse: String) {
         _state.update { currentState ->
             when {
@@ -354,7 +447,8 @@ data class ChatUiState(
     val isTechSpecMode: Boolean = false,
     val techSpecInitialRequest: String? = null,
     val techSpecQuestionsAsked: Int = 0,
-    val selectedModel: String = "claude-3-5-haiku-20241022"
+    val selectedModel: String = "claude-3-5-haiku-20241022",
+    val isModelComparisonMode: Boolean = false
 )
 
 /**
@@ -368,4 +462,5 @@ sealed class ChatIntent {
     data object LoadMessages : ChatIntent()
     data object CheckApiKey : ChatIntent()
     data class SelectModel(val modelId: String) : ChatIntent()
+    data object ReloadSettings : ChatIntent()
 }
