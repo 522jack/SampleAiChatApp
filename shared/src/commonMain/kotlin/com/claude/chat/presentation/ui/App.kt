@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.claude.chat.di.AppContainer
 import com.claude.chat.platform.isSystemInDarkTheme
+import com.claude.chat.presentation.chat.ChatIntent
 import com.claude.chat.presentation.chat.ChatViewModel
 import com.claude.chat.presentation.settings.SettingsViewModel
 import io.github.aakira.napier.DebugAntilog
@@ -48,8 +49,8 @@ fun App(
             Screen.Chat -> {
                 // Reload settings when returning to chat screen
                 LaunchedEffect(chatScreenCounter) {
-                    chatViewModel.onIntent(com.claude.chat.presentation.chat.ChatIntent.CheckApiKey)
-                    chatViewModel.onIntent(com.claude.chat.presentation.chat.ChatIntent.ReloadSettings)
+                    chatViewModel.onIntent(ChatIntent.CheckApiKey)
+                    chatViewModel.onIntent(ChatIntent.ReloadSettings)
                 }
 
                 ChatScreen(

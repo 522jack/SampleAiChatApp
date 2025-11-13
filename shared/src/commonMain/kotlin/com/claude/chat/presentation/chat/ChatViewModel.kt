@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.claude.chat.data.repository.ChatRepository
 import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.MessageRole
+import com.claude.chat.domain.prompts.TechSpecPrompts
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -13,7 +14,9 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 /**
- * ViewModel for chat screen following MVI pattern
+ * ViewModel for chat screen following MVI pattern.
+ * Handles chat interactions, message streaming, model selection, and special modes
+ * (Tech Spec mode, Model Comparison mode).
  */
 @OptIn(ExperimentalUuidApi::class)
 class ChatViewModel(
@@ -31,6 +34,10 @@ class ChatViewModel(
         loadModelComparisonMode()
     }
 
+    // ============================================================================
+    // Public API
+    // ============================================================================
+
     fun onIntent(intent: ChatIntent) {
         when (intent) {
             is ChatIntent.SendMessage -> sendMessage(intent.text)
@@ -43,6 +50,10 @@ class ChatViewModel(
             is ChatIntent.ReloadSettings -> reloadSettings()
         }
     }
+
+    // ============================================================================
+    // Initialization & Settings
+    // ============================================================================
 
     private fun reloadSettings() {
         loadTechSpecMode()
@@ -120,253 +131,291 @@ class ChatViewModel(
         }
     }
 
+    // ============================================================================
+    // Message Sending
+    // ============================================================================
+
     private fun sendMessage(text: String) {
         if (text.isBlank()) return
 
         viewModelScope.launch {
             try {
-                // Add user message
-                val userMessage = Message(
-                    id = Uuid.random().toString(),
-                    content = text,
-                    role = MessageRole.USER,
-                    timestamp = Clock.System.now()
-                )
-
-                val updatedMessages = _state.value.messages + userMessage
-                _state.update {
-                    it.copy(
-                        messages = updatedMessages,
-                        isLoading = true,
-                        error = null
-                    )
-                }
-
-                // Save messages
+                val userMessage = createUserMessage(text)
+                val updatedMessages = addUserMessageToState(userMessage)
                 repository.saveMessages(updatedMessages)
 
-                // Check if model comparison mode is enabled
+                // Route to appropriate sending mode
                 if (_state.value.isModelComparisonMode) {
-                    // Use comparison mode
                     sendMessageComparison(updatedMessages)
-                    return@launch
-                }
-
-                // Determine system prompt based on Tech Spec mode
-                val baseSystemPrompt = repository.getSystemPrompt() ?: "You are a helpful assistant."
-                val systemPrompt = if (_state.value.isTechSpecMode) {
-                    buildTechSpecSystemPrompt(text, baseSystemPrompt)
                 } else {
-                    baseSystemPrompt
+                    sendMessageStreaming(text, updatedMessages)
                 }
-
-                // Get streaming response
-                val assistantMessageId = Uuid.random().toString()
-                var assistantContent = ""
-
-                repository.sendMessage(
-                    messages = updatedMessages,
-                    systemPrompt = systemPrompt
-                ).catch { error ->
-                    Napier.e("Error receiving message", error)
-
-                    val errorMessage = Message(
-                        id = Uuid.random().toString(),
-                        content = "Error: ${error.message ?: "Failed to get response"}",
-                        role = MessageRole.ASSISTANT,
-                        timestamp = Clock.System.now(),
-                        isError = true
-                    )
-
-                    val messagesWithError = _state.value.messages + errorMessage
-                    _state.update {
-                        it.copy(
-                            messages = messagesWithError,
-                            isLoading = false,
-                            error = error.message
-                        )
-                    }
-
-                    repository.saveMessages(messagesWithError)
-                }.collect { chunk ->
-                    assistantContent += chunk
-
-                    val assistantMessage = Message(
-                        id = assistantMessageId,
-                        content = assistantContent,
-                        role = MessageRole.ASSISTANT,
-                        timestamp = Clock.System.now()
-                    )
-
-                    // Update UI with partial message
-                    val currentMessages = _state.value.messages
-                    val existingIndex = currentMessages.indexOfLast { it.id == assistantMessageId }
-
-                    val newMessages = if (existingIndex >= 0) {
-                        currentMessages.toMutableList().apply {
-                            set(existingIndex, assistantMessage)
-                        }
-                    } else {
-                        currentMessages + assistantMessage
-                    }
-
-                    _state.update { it.copy(messages = newMessages) }
-                }
-
-                // Update Tech Spec state after receiving response
-                if (_state.value.isTechSpecMode) {
-                    updateTechSpecState(text, assistantContent)
-                }
-
-                // Save final messages
-                _state.update { it.copy(isLoading = false) }
-                repository.saveMessages(_state.value.messages)
-
             } catch (e: Exception) {
-                Napier.e("Error sending message", e)
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        error = e.message ?: "Failed to send message"
-                    )
-                }
+                handleSendError(e)
             }
         }
     }
 
-    private fun buildTechSpecSystemPrompt(userText: String, basePrompt: String): String {
+    private suspend fun sendMessageStreaming(userText: String, messages: List<Message>) {
+        val systemPrompt = resolveSystemPrompt(userText)
+        val assistantMessageId = Uuid.random().toString()
+        var assistantContent = ""
+        var inputTokens: Int? = null
+        var outputTokens = 0
+
+        repository.sendMessageWithUsage(
+            messages = messages,
+            systemPrompt = systemPrompt
+        ).catch { error ->
+            handleStreamingError(error)
+        }.collect { chunk ->
+            // Accumulate text content
+            chunk.text?.let { assistantContent += it }
+
+            // Update token usage
+            chunk.usage?.let { usage ->
+                usage.inputTokens?.let { inputTokens = it }
+                usage.outputTokens?.let { outputTokens = it }
+                Napier.d("Token usage: input=$inputTokens, output=$outputTokens")
+            }
+
+            // Update UI if we have new content or usage data
+            if (chunk.text != null || chunk.usage != null) {
+                updateAssistantMessage(
+                    assistantMessageId,
+                    assistantContent,
+                    inputTokens,
+                    outputTokens
+                )
+            }
+        }
+
+        // Finalize response
+        if (_state.value.isTechSpecMode) {
+            updateTechSpecState(userText)
+        }
+
+        _state.update { it.copy(isLoading = false) }
+        repository.saveMessages(_state.value.messages)
+    }
+
+    private suspend fun sendMessageComparison(messages: List<Message>) {
+        try {
+            val systemPrompt = repository.getSystemPrompt()
+            val result = repository.sendMessageComparison(messages, systemPrompt)
+
+            if (result.isFailure) {
+                val error = result.exceptionOrNull()
+                Napier.e("Error in comparison mode", error)
+
+                val errorMessage = createErrorMessage(
+                    error?.message ?: "Failed to get comparison responses"
+                )
+
+                val messagesWithError = _state.value.messages + errorMessage
+                _state.update {
+                    it.copy(
+                        messages = messagesWithError,
+                        isLoading = false,
+                        error = error?.message
+                    )
+                }
+
+                repository.saveMessages(messagesWithError)
+                return
+            }
+
+            val comparisonResponse = result.getOrThrow()
+
+            // Create assistant message with comparison response
+            val assistantMessage = Message(
+                id = Uuid.random().toString(),
+                content = "Model Comparison Response",
+                role = MessageRole.ASSISTANT,
+                timestamp = Clock.System.now(),
+                comparisonResponse = comparisonResponse
+            )
+
+            val updatedMessages = _state.value.messages + assistantMessage
+            _state.update {
+                it.copy(
+                    messages = updatedMessages,
+                    isLoading = false
+                )
+            }
+
+            repository.saveMessages(updatedMessages)
+
+        } catch (e: Exception) {
+            Napier.e("Error in comparison mode", e)
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    error = e.message ?: "Failed to get comparison responses"
+                )
+            }
+        }
+    }
+
+    // ============================================================================
+    // Message Creation Helpers
+    // ============================================================================
+
+    private fun createUserMessage(text: String): Message {
+        return Message(
+            id = Uuid.random().toString(),
+            content = text,
+            role = MessageRole.USER,
+            timestamp = Clock.System.now()
+        )
+    }
+
+    private fun createErrorMessage(errorText: String): Message {
+        return Message(
+            id = Uuid.random().toString(),
+            content = "Error: $errorText",
+            role = MessageRole.ASSISTANT,
+            timestamp = Clock.System.now(),
+            isError = true
+        )
+    }
+
+    private fun createAssistantMessage(
+        id: String,
+        content: String,
+        inputTokens: Int? = null,
+        outputTokens: Int = 0
+    ): Message {
+        return Message(
+            id = id,
+            content = content,
+            role = MessageRole.ASSISTANT,
+            timestamp = Clock.System.now(),
+            inputTokens = inputTokens,
+            outputTokens = outputTokens
+        )
+    }
+
+    // ============================================================================
+    // State Update Helpers
+    // ============================================================================
+
+    private fun addUserMessageToState(userMessage: Message): List<Message> {
+        val updatedMessages = _state.value.messages + userMessage
+        _state.update {
+            it.copy(
+                messages = updatedMessages,
+                isLoading = true,
+                error = null
+            )
+        }
+        return updatedMessages
+    }
+
+    private fun updateAssistantMessage(
+        messageId: String,
+        content: String,
+        inputTokens: Int?,
+        outputTokens: Int
+    ) {
+        val assistantMessage = createAssistantMessage(
+            id = messageId,
+            content = content,
+            inputTokens = inputTokens,
+            outputTokens = outputTokens
+        )
+
+        val currentMessages = _state.value.messages
+        val existingIndex = currentMessages.indexOfLast { it.id == messageId }
+
+        val newMessages = if (existingIndex >= 0) {
+            currentMessages.toMutableList().apply {
+                set(existingIndex, assistantMessage)
+            }
+        } else {
+            currentMessages + assistantMessage
+        }
+
+        _state.update { it.copy(messages = newMessages) }
+    }
+
+    // ============================================================================
+    // Error Handling
+    // ============================================================================
+
+    private suspend fun handleStreamingError(error: Throwable) {
+        Napier.e("Error receiving message", error)
+
+        val errorMessage = createErrorMessage(
+            error.message ?: "Failed to get response"
+        )
+
+        val messagesWithError = _state.value.messages + errorMessage
+        _state.update {
+            it.copy(
+                messages = messagesWithError,
+                isLoading = false,
+                error = error.message
+            )
+        }
+
+        repository.saveMessages(messagesWithError)
+    }
+
+    private fun handleSendError(error: Exception) {
+        Napier.e("Error sending message", error)
+        _state.update {
+            it.copy(
+                isLoading = false,
+                error = error.message ?: "Failed to send message"
+            )
+        }
+    }
+
+    // ============================================================================
+    // System Prompt Resolution
+    // ============================================================================
+
+    private suspend fun resolveSystemPrompt(userText: String): String {
+        val baseSystemPrompt = repository.getSystemPrompt()
+            ?: "You are a helpful assistant."
+
+        return if (_state.value.isTechSpecMode) {
+            buildTechSpecSystemPrompt(userText)
+        } else {
+            baseSystemPrompt
+        }
+    }
+
+    // ============================================================================
+    // Tech Spec Mode
+    // ============================================================================
+
+    private fun buildTechSpecSystemPrompt(userText: String): String {
         return when {
             // First message: initiate questions
             _state.value.techSpecInitialRequest == null -> {
-                """You are an AI assistant helping to create a technical specification through a structured interview process.
-
-CRITICAL RULES:
-1. You MUST ask EXACTLY ONE question in your response
-2. Do NOT provide multiple questions or numbered lists of questions
-3. Do NOT create a specification yet - only ask ONE clarifying question
-4. Your entire response should be a SINGLE question about the user's request
-
-The user's request is: "$userText"
-
-Your task: Ask the FIRST clarifying question to better understand their requirements. Make it specific and relevant to creating a technical specification.
-
-Remember: ONE QUESTION ONLY. Stop after asking it."""
+                TechSpecPrompts.getInitialPrompt(userText)
             }
             // Questions 2-5: continue asking
             _state.value.techSpecQuestionsAsked < 5 -> {
                 val questionNumber = _state.value.techSpecQuestionsAsked + 1
-                val questionsLeft = 5 - _state.value.techSpecQuestionsAsked
-                """You are continuing a structured interview to create a technical specification.
-
-CRITICAL RULES:
-1. You MUST ask EXACTLY ONE question in your response
-2. Do NOT provide multiple questions or numbered lists
-3. Do NOT create the specification yet
-4. Your entire response should be ONE SINGLE question
-
-Context:
-- Original request: "${_state.value.techSpecInitialRequest}"
-- You have already asked ${_state.value.techSpecQuestionsAsked} question(s)
-- This will be question #$questionNumber out of 5
-- You have $questionsLeft questions remaining after this one
-
-Task: Ask question #$questionNumber. Make it build on the previous answers to gather comprehensive requirements.
-
-Remember: ONE QUESTION ONLY. Stop immediately after asking it."""
+                TechSpecPrompts.getContinuationPrompt(
+                    initialRequest = _state.value.techSpecInitialRequest ?: userText,
+                    questionsAsked = _state.value.techSpecQuestionsAsked,
+                    questionNumber = questionNumber
+                )
             }
             // All questions collected: create specification
             else -> {
-                """You have completed a structured interview with 5 clarifying questions about a technical specification request.
-
-Original request: "${_state.value.techSpecInitialRequest}"
-
-You have asked 5 clarifying questions and received answers to all of them. Now you MUST create a comprehensive technical specification document.
-
-CRITICAL: Do NOT ask any more questions. Create the specification now.
-
-The technical specification should include:
-- Project Overview: Brief description and goals
-- Functional Requirements: What the system should do
-- Technical Requirements: Technologies, platforms, performance needs
-- User Interface Requirements: If applicable, UI/UX considerations
-- Data Requirements: Data structures, storage, security
-- System Architecture: High-level design overview
-- Testing Requirements: Testing strategy and criteria
-- Deployment Requirements: Deployment process and environment
-
-Format the specification with clear markdown sections and subsections. Be comprehensive and detailed based on all the information gathered."""
-            }
-        }
-    }
-
-    private fun sendMessageComparison(messages: List<Message>) {
-        viewModelScope.launch {
-            try {
-                val systemPrompt = repository.getSystemPrompt()
-
-                // Get comparison response from repository
-                val result = repository.sendMessageComparison(messages, systemPrompt)
-
-                if (result.isFailure) {
-                    val error = result.exceptionOrNull()
-                    Napier.e("Error in comparison mode", error)
-
-                    val errorMessage = Message(
-                        id = Uuid.random().toString(),
-                        content = "Error: ${error?.message ?: "Failed to get comparison responses"}",
-                        role = MessageRole.ASSISTANT,
-                        timestamp = Clock.System.now(),
-                        isError = true
-                    )
-
-                    val messagesWithError = _state.value.messages + errorMessage
-                    _state.update {
-                        it.copy(
-                            messages = messagesWithError,
-                            isLoading = false,
-                            error = error?.message
-                        )
-                    }
-
-                    repository.saveMessages(messagesWithError)
-                    return@launch
-                }
-
-                val comparisonResponse = result.getOrThrow()
-
-                // Create assistant message with comparison response
-                val assistantMessage = Message(
-                    id = Uuid.random().toString(),
-                    content = "Model Comparison Response", // Placeholder content
-                    role = MessageRole.ASSISTANT,
-                    timestamp = Clock.System.now(),
-                    comparisonResponse = comparisonResponse
+                TechSpecPrompts.getFinalSpecificationPrompt(
+                    initialRequest = _state.value.techSpecInitialRequest ?: userText
                 )
-
-                val updatedMessages = _state.value.messages + assistantMessage
-                _state.update {
-                    it.copy(
-                        messages = updatedMessages,
-                        isLoading = false
-                    )
-                }
-
-                // Save messages
-                repository.saveMessages(updatedMessages)
-
-            } catch (e: Exception) {
-                Napier.e("Error in comparison mode", e)
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        error = e.message ?: "Failed to get comparison responses"
-                    )
-                }
             }
         }
     }
 
-    private fun updateTechSpecState(userText: String, assistantResponse: String) {
+    private fun updateTechSpecState(userText: String) {
         _state.update { currentState ->
             when {
                 // First message: save initial request and increment counter

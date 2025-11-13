@@ -11,7 +11,9 @@ data class Message(
     val role: MessageRole,
     val timestamp: Instant,
     val isError: Boolean = false,
-    val comparisonResponse: ModelComparisonResponse? = null
+    val comparisonResponse: ModelComparisonResponse? = null,
+    val inputTokens: Int? = null,
+    val outputTokens: Int? = null
 )
 
 enum class MessageRole {

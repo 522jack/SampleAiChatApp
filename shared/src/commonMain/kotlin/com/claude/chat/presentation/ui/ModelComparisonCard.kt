@@ -22,10 +22,18 @@ private fun formatCost(cost: Double): String {
     return when {
         rounded >= 0.0001 -> {
             // Remove trailing zeros after decimal point
-            val formatted = "%.4f".format(rounded)
-            formatted.trimEnd('0').trimEnd('.')
+            val parts = rounded.toString().split('.')
+            if (parts.size == 2) {
+                val decimals = parts[1].take(4).trimEnd('0')
+                if (decimals.isEmpty()) parts[0] else "${parts[0]}.$decimals"
+            } else {
+                parts[0]
+            }
         }
-        rounded > 0 -> "%.4f".format(rounded).trimEnd('0')
+        rounded > 0 -> {
+            val str = (rounded * 10000).toInt().toString()
+            "0." + "0".repeat(4 - str.length) + str.trimEnd('0')
+        }
         else -> "0"
     }
 }

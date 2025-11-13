@@ -90,6 +90,20 @@ fun MessageBubble(
                         color = textColor
                     )
 
+                    // Token usage display for assistant messages
+                    if (!isUser && (message.inputTokens != null || message.outputTokens != null)) {
+                        Text(
+                            text = buildString {
+                                append("Tokens: ")
+                                message.inputTokens?.let { append("in=$it ") }
+                                message.outputTokens?.let { append("out=$it") }
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = textColor.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,

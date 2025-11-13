@@ -4,6 +4,7 @@ import com.claude.chat.data.local.SettingsStorage
 import com.claude.chat.data.model.ClaudeMessage
 import com.claude.chat.data.model.ClaudeMessageRequest
 import com.claude.chat.data.model.ClaudeModel
+import com.claude.chat.data.model.StreamChunk
 import com.claude.chat.data.remote.ClaudeApiClient
 import com.claude.chat.domain.model.ClaudePricing
 import com.claude.chat.domain.model.Message
@@ -15,6 +16,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -98,6 +100,68 @@ class ChatRepositoryImpl(
 
         Napier.d("Sending message to Claude API with ${messages.size} messages, JSON mode: $jsonModeEnabled")
 
+        // Map StreamChunk to String for backward compatibility
+        return apiClient.sendMessage(request, apiKey).map { chunk ->
+            chunk.text ?: ""
+        }
+    }
+
+    override suspend fun sendMessageWithUsage(
+        messages: List<Message>,
+        systemPrompt: String?
+    ): Flow<StreamChunk> {
+        val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
+        val jsonModeEnabled = getJsonMode()
+
+        val claudeMessages = messages.map { message ->
+            ClaudeMessage(
+                role = when (message.role) {
+                    MessageRole.USER -> "user"
+                    MessageRole.ASSISTANT -> "assistant"
+                },
+                content = message.content
+            )
+        }
+
+        // Prepare system prompt with JSON instructions if JSON mode is enabled
+        val finalSystemPrompt = if (jsonModeEnabled) {
+            val basePrompt = systemPrompt ?: DEFAULT_SYSTEM_PROMPT
+            // Get current date
+            val currentDate = Clock.System.now()
+                .toLocalDateTime(TimeZone.currentSystemDefault())
+                .date
+                .toString()
+
+            """$basePrompt
+
+                Today's date is: $currentDate
+
+                IMPORTANT: You must respond ONLY with valid JSON in the following format:
+                {
+                "question": "the user's question or request",
+                "answer": "your detailed answer",
+                "date": "$currentDate"
+                }
+
+                Always use exactly "$currentDate" as the date value. Do not include any text outside of this JSON structure. The entire response must be valid JSON."""
+        } else {
+            systemPrompt ?: DEFAULT_SYSTEM_PROMPT
+        }
+
+        val selectedModel = getSelectedModel()
+        val temperature = getTemperature()
+
+        val request = ClaudeMessageRequest(
+            model = selectedModel,
+            messages = claudeMessages,
+            maxTokens = MAX_TOKENS,
+            stream = true,
+            system = finalSystemPrompt,
+            temperature = temperature
+        )
+
+        Napier.d("Sending message to Claude API with token usage tracking")
+
         return apiClient.sendMessage(request, apiKey)
     }
 
@@ -155,8 +219,8 @@ class ChatRepositoryImpl(
                     val responseTimeMs = (endTime - startTime).inWholeMilliseconds
 
                     val content = responseResult.content.firstOrNull()?.text ?: ""
-                    val inputTokens = responseResult.usage.inputTokens
-                    val outputTokens = responseResult.usage.outputTokens
+                    val inputTokens = responseResult.usage.inputTokens ?: 0
+                    val outputTokens = responseResult.usage.outputTokens ?: 0
                     val cost = ClaudePricing.calculateCost(model.modelId, inputTokens, outputTokens)
 
                     Napier.d("${model.displayName} response: ${responseTimeMs}ms, tokens: $inputTokens/$outputTokens, cost: \$${cost}")

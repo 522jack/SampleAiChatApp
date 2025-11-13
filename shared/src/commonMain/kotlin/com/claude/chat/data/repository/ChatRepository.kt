@@ -1,5 +1,6 @@
 package com.claude.chat.data.repository
 
+import com.claude.chat.data.model.StreamChunk
 import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.ModelComparisonResponse
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,14 @@ interface ChatRepository {
         messages: List<Message>,
         systemPrompt: String? = null
     ): Flow<String>
+
+    /**
+     * Send a message and receive streaming response with token usage
+     */
+    suspend fun sendMessageWithUsage(
+        messages: List<Message>,
+        systemPrompt: String? = null
+    ): Flow<StreamChunk>
 
     /**
      * Send a message to multiple models and get comparison responses

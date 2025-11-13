@@ -48,9 +48,9 @@ data class ClaudeContent(
 @Serializable
 data class ClaudeUsage(
     @SerialName("input_tokens")
-    val inputTokens: Int,
+    val inputTokens: Int? = null,
     @SerialName("output_tokens")
-    val outputTokens: Int
+    val outputTokens: Int? = null
 )
 
 @Serializable
@@ -79,10 +79,21 @@ data class ClaudeStreamEvent(
 
 @Serializable
 data class ClaudeStreamDelta(
-    val type: String,
+    val type: String? = null,
     val text: String? = null,
     @SerialName("stop_reason")
-    val stopReason: String? = null
+    val stopReason: String? = null,
+    @SerialName("stop_sequence")
+    val stopSequence: String? = null
+)
+
+/**
+ * Data class for streaming response with token usage information
+ */
+data class StreamChunk(
+    val text: String? = null,
+    val usage: ClaudeUsage? = null,
+    val isComplete: Boolean = false
 )
 
 /**
