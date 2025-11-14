@@ -122,4 +122,10 @@ interface ChatRepository {
      * Check if API key is configured
      */
     suspend fun isApiKeyConfigured(): Boolean
+
+    /**
+     * Compress message history by summarizing old messages
+     * Returns true if compression was performed
+     */
+    suspend fun compressMessages(): Result<Boolean>
 }

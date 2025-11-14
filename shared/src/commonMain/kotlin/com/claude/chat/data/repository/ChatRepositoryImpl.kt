@@ -11,6 +11,7 @@ import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.MessageRole
 import com.claude.chat.domain.model.ModelComparisonResponse
 import com.claude.chat.domain.model.ModelResponse
+import com.claude.chat.domain.service.MessageCompressionService
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -31,6 +32,8 @@ class ChatRepositoryImpl(
     private val apiClient: ClaudeApiClient,
     private val settingsStorage: SettingsStorage
 ) : ChatRepository {
+
+    private val compressionService = MessageCompressionService(apiClient)
 
     companion object {
         private const val MAX_TOKENS = 8192
@@ -56,6 +59,7 @@ class ChatRepositoryImpl(
                 role = when (message.role) {
                     MessageRole.USER -> "user"
                     MessageRole.ASSISTANT -> "assistant"
+                    MessageRole.SYSTEM -> "user" // Summary messages sent as user messages for context
                 },
                 content = message.content
             )
@@ -118,6 +122,7 @@ class ChatRepositoryImpl(
                 role = when (message.role) {
                     MessageRole.USER -> "user"
                     MessageRole.ASSISTANT -> "assistant"
+                    MessageRole.SYSTEM -> "user" // Summary messages sent as user messages for context
                 },
                 content = message.content
             )
@@ -176,12 +181,13 @@ class ChatRepositoryImpl(
 
             // Prepare messages for API
             val claudeMessages = messages
-                .filter { it.comparisonResponse == null } // Exclude previous comparison responses
+                .filter { it.comparisonResponse == null } // Exclude comparison responses, but include summaries
                 .map { message ->
                     ClaudeMessage(
                         role = when (message.role) {
                             MessageRole.USER -> "user"
                             MessageRole.ASSISTANT -> "assistant"
+                            MessageRole.SYSTEM -> "user" // Summary messages sent as user messages for context
                         },
                         content = message.content
                     )
@@ -323,5 +329,33 @@ class ChatRepositoryImpl(
 
     override suspend fun isApiKeyConfigured(): Boolean {
         return !getApiKey().isNullOrBlank()
+    }
+
+    override suspend fun compressMessages(): Result<Boolean> {
+        try {
+            val messages = getMessages()
+
+            if (!compressionService.shouldCompress(messages)) {
+                return Result.success(false)
+            }
+
+            val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
+
+            val compressionResult = compressionService.compressMessages(messages, apiKey)
+
+            if (compressionResult.isFailure) {
+                return Result.failure(compressionResult.exceptionOrNull()!!)
+            }
+
+            val compressedMessages = compressionResult.getOrThrow()
+            saveMessages(compressedMessages)
+
+            Napier.d("Messages compressed successfully")
+            return Result.success(true)
+
+        } catch (e: Exception) {
+            Napier.e("Error compressing messages", e)
+            return Result.failure(e)
+        }
     }
 }

@@ -138,7 +138,11 @@ private data class StoredMessage(
     val content: String,
     val role: String,
     val timestamp: Long,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val isSummary: Boolean = false,
+    val summarizedMessageCount: Int? = null,
+    val summarizedTokens: Int? = null,
+    val tokensSaved: Int? = null
 ) {
     fun toDomainModel(): Message {
         return Message(
@@ -147,10 +151,15 @@ private data class StoredMessage(
             role = when (role) {
                 "user" -> MessageRole.USER
                 "assistant" -> MessageRole.ASSISTANT
+                "system" -> MessageRole.SYSTEM
                 else -> MessageRole.USER
             },
             timestamp = Instant.fromEpochMilliseconds(timestamp),
-            isError = isError
+            isError = isError,
+            isSummary = isSummary,
+            summarizedMessageCount = summarizedMessageCount,
+            summarizedTokens = summarizedTokens,
+            tokensSaved = tokensSaved
         )
     }
 
@@ -162,9 +171,14 @@ private data class StoredMessage(
                 role = when (message.role) {
                     MessageRole.USER -> "user"
                     MessageRole.ASSISTANT -> "assistant"
+                    MessageRole.SYSTEM -> "system"
                 },
                 timestamp = message.timestamp.toEpochMilliseconds(),
-                isError = message.isError
+                isError = message.isError,
+                isSummary = message.isSummary,
+                summarizedMessageCount = message.summarizedMessageCount,
+                summarizedTokens = message.summarizedTokens,
+                tokensSaved = message.tokensSaved
             )
         }
     }

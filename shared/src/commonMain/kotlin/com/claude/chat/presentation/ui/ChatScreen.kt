@@ -165,6 +165,24 @@ fun ChatScreen(
                     Text(error)
                 }
             }
+
+            // Compression notification
+            state.compressionNotification?.let { notification ->
+                Snackbar(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(16.dp),
+                    action = {
+                        TextButton(onClick = { onIntent(ChatIntent.DismissCompressionNotification) }) {
+                            Text("OK")
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                ) {
+                    Text(notification)
+                }
+            }
         }
     }
 }

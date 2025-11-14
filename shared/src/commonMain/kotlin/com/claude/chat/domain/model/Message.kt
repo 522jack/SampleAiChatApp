@@ -13,10 +13,15 @@ data class Message(
     val isError: Boolean = false,
     val comparisonResponse: ModelComparisonResponse? = null,
     val inputTokens: Int? = null,
-    val outputTokens: Int? = null
+    val outputTokens: Int? = null,
+    val isSummary: Boolean = false,
+    val summarizedMessageCount: Int? = null,
+    val summarizedTokens: Int? = null,
+    val tokensSaved: Int? = null
 )
 
 enum class MessageRole {
     USER,
-    ASSISTANT
+    ASSISTANT,
+    SYSTEM
 }

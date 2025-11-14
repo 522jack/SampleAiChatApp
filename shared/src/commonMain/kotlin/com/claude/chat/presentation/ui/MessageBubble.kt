@@ -26,9 +26,65 @@ fun MessageBubble(
     modifier: Modifier = Modifier
 ) {
     val isUser = message.role == MessageRole.USER
+    val isSystem = message.role == MessageRole.SYSTEM
 
-    // Check if this is a comparison response
-    if (message.comparisonResponse != null) {
+    // Check if this is a summary message
+    if (message.isSummary && isSystem) {
+        // Display summary card
+        Card(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📝",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Column {
+                        Text(
+                            text = "Conversation Summary",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (message.summarizedTokens != null && message.tokensSaved != null) {
+                            Text(
+                                text = "Summarized ${message.summarizedTokens} tokens • Saved ~${message.tokensSaved} tokens",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+
+                Divider(modifier = Modifier.padding(vertical = 4.dp))
+
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text(
+                    text = formatTimestamp(message.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    } else if (message.comparisonResponse != null) {
         // Display comparison card for assistant messages with comparison data
         Column(
             modifier = modifier

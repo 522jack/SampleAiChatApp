@@ -48,6 +48,7 @@ class ChatViewModel(
             is ChatIntent.CheckApiKey -> checkApiKey()
             is ChatIntent.SelectModel -> selectModel(intent.modelId)
             is ChatIntent.ReloadSettings -> reloadSettings()
+            is ChatIntent.DismissCompressionNotification -> dismissCompressionNotification()
         }
     }
 
@@ -197,6 +198,9 @@ class ChatViewModel(
 
         _state.update { it.copy(isLoading = false) }
         repository.saveMessages(_state.value.messages)
+
+        // Check if compression is needed after sending message
+        attemptCompression()
     }
 
     private suspend fun sendMessageComparison(messages: List<Message>) {
@@ -483,6 +487,47 @@ class ChatViewModel(
         // This will be handled by platform-specific code
         Napier.d("Copy message: ${message.content}")
     }
+
+    // ============================================================================
+    // Message Compression
+    // ============================================================================
+
+    private fun attemptCompression() {
+        viewModelScope.launch {
+            try {
+                val result = repository.compressMessages()
+
+                if (result.isSuccess && result.getOrNull() == true) {
+                    // Compression was performed
+                    val messages = repository.getMessages()
+                    val lastSummary = messages.lastOrNull { it.isSummary }
+
+                    val notification = if (lastSummary != null) {
+                        val count = lastSummary.summarizedMessageCount ?: 0
+                        "History compressed: $count messages summarized to save tokens"
+                    } else {
+                        "History compressed successfully"
+                    }
+
+                    _state.update {
+                        it.copy(
+                            messages = messages,
+                            compressionNotification = notification
+                        )
+                    }
+
+                    Napier.d("Compression notification shown: $notification")
+                }
+            } catch (e: Exception) {
+                Napier.e("Error during compression attempt", e)
+                // Don't show error to user - compression is optional optimization
+            }
+        }
+    }
+
+    private fun dismissCompressionNotification() {
+        _state.update { it.copy(compressionNotification = null) }
+    }
 }
 
 /**
@@ -497,7 +542,8 @@ data class ChatUiState(
     val techSpecInitialRequest: String? = null,
     val techSpecQuestionsAsked: Int = 0,
     val selectedModel: String = "claude-3-5-haiku-20241022",
-    val isModelComparisonMode: Boolean = false
+    val isModelComparisonMode: Boolean = false,
+    val compressionNotification: String? = null
 )
 
 /**
@@ -512,4 +558,5 @@ sealed class ChatIntent {
     data object CheckApiKey : ChatIntent()
     data class SelectModel(val modelId: String) : ChatIntent()
     data object ReloadSettings : ChatIntent()
+    data object DismissCompressionNotification : ChatIntent()
 }
