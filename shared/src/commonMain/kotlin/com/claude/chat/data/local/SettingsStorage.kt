@@ -29,6 +29,7 @@ class SettingsStorage(
         private const val KEY_SELECTED_MODEL = "selected_model"
         private const val KEY_TEMPERATURE = "temperature"
         private const val KEY_MODEL_COMPARISON_MODE = "model_comparison_mode"
+        private const val KEY_MCP_ENABLED = "mcp_enabled"
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
         private const val DEFAULT_TEMPERATURE = 1.0
     }
@@ -93,6 +94,15 @@ class SettingsStorage(
     fun saveModelComparisonMode(enabled: Boolean) {
         settings.putBoolean(KEY_MODEL_COMPARISON_MODE, enabled)
         Napier.d("Model comparison mode ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun getMcpEnabled(): Boolean {
+        return settings.getBoolean(KEY_MCP_ENABLED, false)
+    }
+
+    fun saveMcpEnabled(enabled: Boolean) {
+        settings.putBoolean(KEY_MCP_ENABLED, enabled)
+        Napier.d("MCP ${if (enabled) "enabled" else "disabled"}")
     }
 
     fun getMessages(): List<Message> {

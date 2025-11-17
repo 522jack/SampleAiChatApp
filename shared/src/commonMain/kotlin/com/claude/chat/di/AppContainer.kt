@@ -1,6 +1,7 @@
 package com.claude.chat.di
 
 import com.claude.chat.data.local.SettingsStorage
+import com.claude.chat.data.mcp.McpManager
 import com.claude.chat.data.remote.ClaudeApiClient
 import com.claude.chat.data.remote.ClaudeApiClientImpl
 import com.claude.chat.data.remote.createHttpClient
@@ -21,7 +22,11 @@ class AppContainer {
         SettingsStorage()
     }
 
+    val mcpManager by lazy {
+        McpManager()
+    }
+
     val chatRepository: ChatRepository by lazy {
-        ChatRepositoryImpl(apiClient, settingsStorage)
+        ChatRepositoryImpl(apiClient, settingsStorage, mcpManager)
     }
 }

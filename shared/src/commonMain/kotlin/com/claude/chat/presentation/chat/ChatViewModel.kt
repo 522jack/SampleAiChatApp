@@ -2,6 +2,7 @@ package com.claude.chat.presentation.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.claude.chat.data.model.McpTool
 import com.claude.chat.data.repository.ChatRepository
 import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.MessageRole
@@ -32,6 +33,7 @@ class ChatViewModel(
         loadTechSpecMode()
         loadSelectedModel()
         loadModelComparisonMode()
+        loadMcpTools()
     }
 
     // ============================================================================
@@ -49,6 +51,7 @@ class ChatViewModel(
             is ChatIntent.SelectModel -> selectModel(intent.modelId)
             is ChatIntent.ReloadSettings -> reloadSettings()
             is ChatIntent.DismissCompressionNotification -> dismissCompressionNotification()
+            is ChatIntent.ExecuteMcpTool -> executeMcpTool(intent.toolName, intent.arguments)
         }
     }
 
@@ -128,6 +131,84 @@ class ChatViewModel(
             } catch (e: Exception) {
                 Napier.e("Error loading messages", e)
                 _state.update { it.copy(error = "Failed to load messages") }
+            }
+        }
+    }
+
+    // ============================================================================
+    // MCP Tools
+    // ============================================================================
+
+    private fun loadMcpTools() {
+        viewModelScope.launch {
+            try {
+                val mcpEnabled = repository.getMcpEnabled()
+                if (mcpEnabled) {
+                    repository.initializeMcpTools()
+                }
+                val tools = repository.getAvailableMcpTools()
+                _state.update {
+                    it.copy(
+                        mcpEnabled = mcpEnabled,
+                        availableMcpTools = tools
+                    )
+                }
+                Napier.d("MCP tools loaded: ${tools.size} tools available")
+            } catch (e: Exception) {
+                Napier.e("Error loading MCP tools", e)
+            }
+        }
+    }
+
+    private fun executeMcpTool(toolName: String, arguments: Map<String, String>) {
+        viewModelScope.launch {
+            try {
+                // Add user message showing tool call
+                val userMessage = Message(
+                    id = Uuid.random().toString(),
+                    content = "🔧 Executing tool: $toolName\nArguments: ${arguments.entries.joinToString(", ") { "${it.key}=${it.value}" }}",
+                    role = MessageRole.USER,
+                    timestamp = Clock.System.now()
+                )
+
+                val updatedMessages = _state.value.messages + userMessage
+                _state.update { it.copy(messages = updatedMessages, isLoading = true) }
+                repository.saveMessages(updatedMessages)
+
+                // Call the tool through repository
+                val result = repository.callMcpTool(toolName, arguments)
+
+                // Create assistant message with result
+                val assistantMessage = if (result.isSuccess) {
+                    Message(
+                        id = Uuid.random().toString(),
+                        content = "✅ Tool result:\n${result.getOrNull()}",
+                        role = MessageRole.ASSISTANT,
+                        timestamp = Clock.System.now()
+                    )
+                } else {
+                    Message(
+                        id = Uuid.random().toString(),
+                        content = "❌ Tool error: ${result.exceptionOrNull()?.message}",
+                        role = MessageRole.ASSISTANT,
+                        timestamp = Clock.System.now(),
+                        isError = true
+                    )
+                }
+
+                val finalMessages = _state.value.messages + assistantMessage
+                _state.update { it.copy(messages = finalMessages, isLoading = false) }
+                repository.saveMessages(finalMessages)
+
+                Napier.d("MCP tool executed: $toolName")
+            } catch (e: Exception) {
+                Napier.e("Error executing MCP tool", e)
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Failed to execute tool: ${e.message}"
+                    )
+                }
             }
         }
     }
@@ -543,7 +624,9 @@ data class ChatUiState(
     val techSpecQuestionsAsked: Int = 0,
     val selectedModel: String = "claude-3-5-haiku-20241022",
     val isModelComparisonMode: Boolean = false,
-    val compressionNotification: String? = null
+    val compressionNotification: String? = null,
+    val mcpEnabled: Boolean = false,
+    val availableMcpTools: List<McpTool> = emptyList()
 )
 
 /**
@@ -559,4 +642,5 @@ sealed class ChatIntent {
     data class SelectModel(val modelId: String) : ChatIntent()
     data object ReloadSettings : ChatIntent()
     data object DismissCompressionNotification : ChatIntent()
+    data class ExecuteMcpTool(val toolName: String, val arguments: Map<String, String>) : ChatIntent()
 }

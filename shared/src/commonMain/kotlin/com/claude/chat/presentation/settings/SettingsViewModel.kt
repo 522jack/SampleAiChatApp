@@ -31,6 +31,7 @@ class SettingsViewModel(
             is SettingsIntent.ToggleJsonMode -> toggleJsonMode(intent.enabled)
             is SettingsIntent.ToggleTechSpecMode -> toggleTechSpecMode(intent.enabled)
             is SettingsIntent.ToggleModelComparisonMode -> toggleModelComparisonMode(intent.enabled)
+            is SettingsIntent.ToggleMcp -> toggleMcp(intent.enabled)
             is SettingsIntent.ClearAllData -> clearAllData()
             is SettingsIntent.ClearApiKey -> clearApiKey()
             is SettingsIntent.UpdateApiKeyInput -> updateApiKeyInput(intent.apiKey)
@@ -49,6 +50,7 @@ class SettingsViewModel(
                 val techSpecMode = repository.getTechSpecMode()
                 val temperature = repository.getTemperature()
                 val comparisonMode = repository.getModelComparisonMode()
+                val mcpEnabled = repository.getMcpEnabled()
 
                 // Log key info for debugging
                 if (apiKey.isNotBlank()) {
@@ -67,6 +69,7 @@ class SettingsViewModel(
                         jsonModeEnabled = jsonMode,
                         techSpecModeEnabled = techSpecMode,
                         modelComparisonModeEnabled = comparisonMode,
+                        mcpEnabled = mcpEnabled,
                         temperature = temperature.toString(),
                         isLoading = false
                     )
@@ -317,6 +320,27 @@ class SettingsViewModel(
         }
     }
 
+    private fun toggleMcp(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.saveMcpEnabled(enabled)
+                _state.update {
+                    it.copy(
+                        mcpEnabled = enabled
+                    )
+                }
+                Napier.d("MCP ${if (enabled) "enabled" else "disabled"}")
+            } catch (e: Exception) {
+                Napier.e("Error toggling MCP", e)
+                _state.update {
+                    it.copy(
+                        error = "Failed to update MCP setting"
+                    )
+                }
+            }
+        }
+    }
+
     fun resetSaveSuccess() {
         _state.update { it.copy(saveSuccess = false) }
     }
@@ -331,6 +355,7 @@ data class SettingsUiState(
     val jsonModeEnabled: Boolean = false,
     val techSpecModeEnabled: Boolean = false,
     val modelComparisonModeEnabled: Boolean = false,
+    val mcpEnabled: Boolean = false,
     val temperature: String = "1.0",
     val isLoading: Boolean = true,
     val error: String? = null,
@@ -346,6 +371,7 @@ sealed class SettingsIntent {
     data class ToggleJsonMode(val enabled: Boolean) : SettingsIntent()
     data class ToggleTechSpecMode(val enabled: Boolean) : SettingsIntent()
     data class ToggleModelComparisonMode(val enabled: Boolean) : SettingsIntent()
+    data class ToggleMcp(val enabled: Boolean) : SettingsIntent()
     data object ClearAllData : SettingsIntent()
     data object ClearApiKey : SettingsIntent()
     data class UpdateApiKeyInput(val apiKey: String) : SettingsIntent()

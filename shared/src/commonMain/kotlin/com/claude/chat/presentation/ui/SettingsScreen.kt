@@ -295,6 +295,39 @@ fun SettingsScreen(
                 }
             }
 
+            // MCP (Model Context Protocol) Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "MCP Tools",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            "Enable Model Context Protocol tools (calculator, time, JSON formatter, etc.)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = state.mcpEnabled,
+                        onCheckedChange = { onIntent(SettingsIntent.ToggleMcp(it)) }
+                    )
+                }
+            }
+
             // Clear Data Section
             Card(
                 modifier = Modifier.fillMaxWidth(),

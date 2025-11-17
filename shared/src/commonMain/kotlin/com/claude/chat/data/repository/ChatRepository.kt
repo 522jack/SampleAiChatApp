@@ -1,5 +1,6 @@
 package com.claude.chat.data.repository
 
+import com.claude.chat.data.model.McpTool
 import com.claude.chat.data.model.StreamChunk
 import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.ModelComparisonResponse
@@ -9,6 +10,31 @@ import kotlinx.coroutines.flow.Flow
  * Repository interface for chat operations
  */
 interface ChatRepository {
+    /**
+     * Initialize MCP tools
+     */
+    suspend fun initializeMcpTools()
+
+    /**
+     * Get available MCP tools
+     */
+    fun getAvailableMcpTools(): List<McpTool>
+
+    /**
+     * Check if MCP is enabled
+     */
+    suspend fun getMcpEnabled(): Boolean
+
+    /**
+     * Set MCP enabled state
+     */
+    suspend fun saveMcpEnabled(enabled: Boolean)
+
+    /**
+     * Call an MCP tool with given arguments
+     */
+    suspend fun callMcpTool(toolName: String, arguments: Map<String, String>): Result<String>
+
     /**
      * Send a message and receive streaming response
      */

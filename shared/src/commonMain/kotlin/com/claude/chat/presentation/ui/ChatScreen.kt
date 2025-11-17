@@ -32,6 +32,18 @@ fun ChatScreen(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var selectedTool by remember { mutableStateOf<com.claude.chat.data.model.McpTool?>(null) }
+
+    // Show MCP Tool Dialog
+    selectedTool?.let { tool ->
+        McpToolDialog(
+            tool = tool,
+            onDismiss = { selectedTool = null },
+            onExecute = { arguments ->
+                onIntent(ChatIntent.ExecuteMcpTool(tool.name, arguments))
+            }
+        )
+    }
 
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
@@ -45,7 +57,18 @@ fun ChatScreen(
         modifier = modifier.imePadding(),
         topBar = {
             TopAppBar(
-                title = { Text("Claude Chat") },
+                title = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Claude Chat")
+                        // MCP Tools indicator
+                        if (state.mcpEnabled && state.availableMcpTools.isNotEmpty()) {
+                            McpToolsIndicator(toolCount = state.availableMcpTools.size)
+                        }
+                    }
+                },
                 actions = {
                     // Hide model selector when comparison mode is enabled
                     if (!state.isModelComparisonMode) {
@@ -113,16 +136,32 @@ fun ChatScreen(
                     }
                 }
             } else if (state.messages.isEmpty()) {
-                // Show empty state
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                // Show empty state with MCP tools if available
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    Spacer(modifier = Modifier.weight(1f))
+
                     Text(
                         "Start a conversation with Claude",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Show MCP tools list when enabled
+                    if (state.mcpEnabled && state.availableMcpTools.isNotEmpty()) {
+                        McpToolsList(
+                            tools = state.availableMcpTools,
+                            onToolClick = { tool -> selectedTool = tool },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             } else {
                 // Show messages
@@ -132,6 +171,17 @@ fun ChatScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Show MCP tools at the top of chat
+                    if (state.mcpEnabled && state.availableMcpTools.isNotEmpty()) {
+                        item {
+                            McpToolsList(
+                                tools = state.availableMcpTools,
+                                onToolClick = { tool -> selectedTool = tool },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
                     items(
                         items = state.messages,
                         key = { it.id }

@@ -2,6 +2,7 @@ package com.claude.chat.data.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Claude API request/response models
@@ -16,13 +17,22 @@ data class ClaudeMessageRequest(
     val maxTokens: Int,
     val stream: Boolean = false,
     val system: String? = null,
-    val temperature: Double? = null
+    val temperature: Double? = null,
+    val tools: List<ClaudeTool>? = null
 )
 
 @Serializable
 data class ClaudeMessage(
     val role: String, // "user" or "assistant"
     val content: String
+)
+
+@Serializable
+data class ClaudeTool(
+    val name: String,
+    val description: String? = null,
+    @SerialName("input_schema")
+    val inputSchema: JsonObject
 )
 
 @Serializable
