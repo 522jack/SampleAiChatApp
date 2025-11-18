@@ -60,8 +60,6 @@ kotlin {
             // Lifecycle ViewModel (Multiplatform)
             implementation(libs.lifecycle.viewmodel.compose)
 
-            // UUID for MCP
-            implementation("com.benasher44:uuid:0.8.2")
         }
 
         androidMain.dependencies {

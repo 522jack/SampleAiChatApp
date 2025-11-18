@@ -10,7 +10,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.claude.chat.di.AppContainer
 import com.claude.chat.platform.isSystemInDarkTheme
 import com.claude.chat.presentation.chat.ChatIntent
+import com.claude.chat.presentation.chat.ChatScreen
 import com.claude.chat.presentation.chat.ChatViewModel
+import com.claude.chat.presentation.settings.SettingsScreen
 import com.claude.chat.presentation.settings.SettingsViewModel
 import io.github.aakira.napier.DebugAntilog
 import io.github.aakira.napier.Napier

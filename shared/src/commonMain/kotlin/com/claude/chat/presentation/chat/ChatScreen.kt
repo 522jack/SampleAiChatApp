@@ -1,7 +1,5 @@
-package com.claude.chat.presentation.ui
+package com.claude.chat.presentation.chat
 
-import androidx.compose.animation.*
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,9 +12,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.claude.chat.domain.model.Message
-import com.claude.chat.presentation.chat.ChatIntent
-import com.claude.chat.presentation.chat.ChatUiState
+import com.claude.chat.data.model.McpTool
+import com.claude.chat.presentation.ui.ChatInputBar
+import com.claude.chat.presentation.ui.McpToolDialog
+import com.claude.chat.presentation.ui.McpToolsIndicator
+import com.claude.chat.presentation.ui.McpToolsList
+import com.claude.chat.presentation.ui.MessageBubble
+import com.claude.chat.presentation.ui.ModelSelector
+import com.claude.chat.presentation.ui.TypingIndicator
 import kotlinx.coroutines.launch
 
 /**
@@ -32,7 +35,7 @@ fun ChatScreen(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    var selectedTool by remember { mutableStateOf<com.claude.chat.data.model.McpTool?>(null) }
+    var selectedTool by remember { mutableStateOf<McpTool?>(null) }
 
     // Show MCP Tool Dialog
     selectedTool?.let { tool ->

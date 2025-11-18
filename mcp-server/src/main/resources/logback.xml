@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDERR"/>
+    </root>
+
+    <!-- Set to DEBUG for more detailed logs -->
+    <logger name="com.claude.mcp.server" level="INFO"/>
+    <logger name="io.ktor" level="INFO"/>
+</configuration>

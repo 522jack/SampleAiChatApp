@@ -1,7 +1,6 @@
 package com.claude.chat.data.mcp
 
 import com.claude.chat.data.model.*
-import com.benasher44.uuid.uuid4
 import kotlinx.serialization.json.*
 import io.github.aakira.napier.Napier
 

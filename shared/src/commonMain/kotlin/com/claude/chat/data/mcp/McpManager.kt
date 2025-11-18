@@ -3,12 +3,16 @@ package com.claude.chat.data.mcp
 import com.claude.chat.data.model.ClaudeTool
 import com.claude.chat.data.model.McpTool
 import io.github.aakira.napier.Napier
+import io.ktor.client.*
 
 /**
  * Manager for MCP clients and tools
  * Handles initialization and tool retrieval from multiple MCP servers
  */
-class McpManager {
+class McpManager(
+    private val httpClient: HttpClient? = null,
+    private val weatherApiKey: String? = null
+) {
     private val clients = mutableListOf<McpClient>()
     private var _availableTools = emptyList<McpTool>()
 
@@ -16,20 +20,40 @@ class McpManager {
         get() = _availableTools
 
     /**
-     * Initialize with a simple MCP client
+     * Initialize with all available MCP clients
      */
     suspend fun initialize() {
         try {
+            // Initialize simple MCP client with basic tools
             val simpleClient = SimpleMcpClient()
-            val result = simpleClient.initialize()
+            val simpleResult = simpleClient.initialize()
 
-            if (result.isSuccess) {
+            if (simpleResult.isSuccess) {
                 clients.add(simpleClient)
                 Napier.i("MCP client initialized: ${simpleClient.serverInfo?.name}")
-                refreshTools()
             } else {
-                Napier.e("Failed to initialize MCP client", result.exceptionOrNull())
+                Napier.e("Failed to initialize Simple MCP client", simpleResult.exceptionOrNull())
             }
+
+            // Initialize Weather MCP client if HTTP client is provided
+            if (httpClient != null) {
+                val weatherClient = WeatherMcpClient(
+                    httpClient = httpClient,
+                    apiKey = weatherApiKey ?: "demo"
+                )
+                val weatherResult = weatherClient.initialize()
+
+                if (weatherResult.isSuccess) {
+                    clients.add(weatherClient)
+                    Napier.i("MCP client initialized: ${weatherClient.serverInfo?.name}")
+                } else {
+                    Napier.e("Failed to initialize Weather MCP client", weatherResult.exceptionOrNull())
+                }
+            } else {
+                Napier.w("HTTP client not provided, Weather MCP client will not be initialized")
+            }
+
+            refreshTools()
         } catch (e: Exception) {
             Napier.e("Error initializing MCP manager", e)
         }

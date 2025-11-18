@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "weather": {
+      "command": "java",
+      "args": [
+        "-jar",
+        "/absolute/path/to/SampleAiAgentApp/mcp-server/build/libs/mcp-weather-server-1.0.0.jar",
+        "stdio"
+      ],
+      "env": {
+        "OPENWEATHER_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
