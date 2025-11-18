@@ -79,7 +79,26 @@ class SseTransport(
                     }
                 }
 
-                // POST endpoint for sending MCP messages
+                // Simple JSON-RPC endpoint (stateless)
+                post("/mcp") {
+                    try {
+                        val requestBody = call.receiveText()
+                        logger.debug { "Received RPC request: $requestBody" }
+
+                        val response = handler.handleRequest(requestBody)
+
+                        call.respondText(
+                            response,
+                            ContentType.Application.Json,
+                            HttpStatusCode.OK
+                        )
+                    } catch (e: Exception) {
+                        logger.error(e) { "Error processing RPC request" }
+                        call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
+                    }
+                }
+
+                // POST endpoint for sending MCP messages (SSE-based)
                 post("/message") {
                     val sessionId = call.request.header("X-Session-Id")
                     if (sessionId == null) {

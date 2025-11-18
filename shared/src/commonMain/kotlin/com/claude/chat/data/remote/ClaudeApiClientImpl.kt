@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
 
 /**
  * Implementation of Claude API client using Ktor
@@ -62,6 +63,12 @@ class ClaudeApiClientImpl(
         try {
             val validatedKey = validateApiKey(apiKey)
             val streamingRequest = request.copy(stream = true)
+
+            // Log the request details including tools
+            Napier.d("Sending message request: model=${streamingRequest.model}, tools=${streamingRequest.tools?.size ?: 0}")
+            streamingRequest.tools?.forEach { tool ->
+                Napier.d("Tool available: ${tool.name} - ${tool.description}")
+            }
 
             httpClient.preparePost(MESSAGES_ENDPOINT) {
                 configureHeaders(validatedKey)
@@ -155,6 +162,7 @@ class ClaudeApiClientImpl(
 
             when (event.type) {
                 "message_start" -> handleMessageStart(event)
+                "content_block_start" -> handleContentBlockStart(event)
                 "content_block_delta" -> handleContentBlockDelta(event)
                 "message_delta" -> handleMessageDelta(event)
                 "message_stop" -> handleMessageStop()
@@ -175,6 +183,25 @@ class ClaudeApiClientImpl(
             // Only emit if we have input tokens (output will come in message_delta)
             if (usage.inputTokens != null) {
                 emit(StreamChunk(usage = usage))
+            }
+        }
+    }
+
+    /**
+     * Handles content_block_start event (for tool use)
+     */
+    private suspend fun FlowCollector<StreamChunk>.handleContentBlockStart(event: ClaudeStreamEvent) {
+        event.contentBlock?.let { content ->
+            if (content.type == "tool_use" && content.id != null && content.name != null) {
+                val input = content.input ?: kotlinx.serialization.json.buildJsonObject {}
+                Napier.d("Received tool_use: ${content.name} with input: $input")
+                emit(StreamChunk(
+                    toolUse = com.claude.chat.data.model.ToolUseInfo(
+                        id = content.id,
+                        name = content.name,
+                        input = input
+                    )
+                ))
             }
         }
     }

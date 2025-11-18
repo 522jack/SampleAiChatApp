@@ -328,6 +328,105 @@ fun SettingsScreen(
                 }
             }
 
+            // MCP External Servers Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "External MCP Servers",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Button(
+                            onClick = { onIntent(SettingsIntent.ShowAddServerDialog) }
+                        ) {
+                            Text("Add Server")
+                        }
+                    }
+
+                    Text(
+                        "Connect to external MCP servers (Weather, Files, etc.)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (state.mcpServers.isEmpty()) {
+                        Text(
+                            "No external servers configured. Add one to get started!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    } else {
+                        state.mcpServers.forEach { server ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            server.name,
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                        val config = server.config
+                                        if (config is com.claude.chat.data.model.McpConnectionConfig.HttpConfig) {
+                                            Text(
+                                                config.url,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Text(
+                                            "Type: ${server.type.name}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Switch(
+                                            checked = server.enabled,
+                                            onCheckedChange = {
+                                                onIntent(SettingsIntent.ToggleMcpServer(server.id, it))
+                                            }
+                                        )
+                                        IconButton(
+                                            onClick = { onIntent(SettingsIntent.RemoveMcpServer(server.id)) }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Remove server",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Clear Data Section
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -409,6 +508,56 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Add MCP Server dialog
+    if (state.showAddServerDialog) {
+        AlertDialog(
+            onDismissRequest = { onIntent(SettingsIntent.HideAddServerDialog) },
+            title = { Text("Add MCP Server") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = state.newServerName,
+                        onValueChange = { onIntent(SettingsIntent.UpdateServerName(it)) },
+                        label = { Text("Server Name") },
+                        placeholder = { Text("Weather Server") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = state.newServerUrl,
+                        onValueChange = { onIntent(SettingsIntent.UpdateServerUrl(it)) },
+                        label = { Text("Server URL") },
+                        placeholder = { Text("http://localhost:3000") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(
+                        "Add a URL to an external MCP server. The server must be running and accessible.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { onIntent(SettingsIntent.SaveNewServer) },
+                    enabled = state.newServerName.isNotBlank() && state.newServerUrl.isNotBlank()
+                ) {
+                    Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { onIntent(SettingsIntent.HideAddServerDialog) }) {
                     Text("Cancel")
                 }
             }

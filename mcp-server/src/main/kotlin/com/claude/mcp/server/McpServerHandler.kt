@@ -203,6 +203,12 @@ class McpServerHandler(
     }
 
     private suspend fun executeGetCurrentWeather(arguments: JsonObject?): CallToolResult {
+        logger.info { "executeGetCurrentWeather called with arguments: $arguments" }
+        logger.info { "Arguments keys: ${arguments?.keys}" }
+        arguments?.forEach { (key, value) ->
+            logger.info { "  Argument: $key = $value (type: ${value::class.simpleName})" }
+        }
+
         val city = arguments?.get("city")?.jsonPrimitive?.content
             ?: return CallToolResult(
                 content = listOf(ToolContent(type = "text", text = "City parameter is required")),

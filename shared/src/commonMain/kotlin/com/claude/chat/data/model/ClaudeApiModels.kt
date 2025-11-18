@@ -51,8 +51,12 @@ data class ClaudeMessageResponse(
 
 @Serializable
 data class ClaudeContent(
-    val type: String, // "text"
-    val text: String
+    val type: String, // "text" or "tool_use"
+    val text: String? = null,
+    // Tool use fields
+    val id: String? = null,
+    val name: String? = null,
+    val input: JsonObject? = null
 )
 
 @Serializable
@@ -91,6 +95,8 @@ data class ClaudeStreamEvent(
 data class ClaudeStreamDelta(
     val type: String? = null,
     val text: String? = null,
+    @SerialName("partial_json")
+    val partialJson: String? = null,
     @SerialName("stop_reason")
     val stopReason: String? = null,
     @SerialName("stop_sequence")
@@ -103,7 +109,17 @@ data class ClaudeStreamDelta(
 data class StreamChunk(
     val text: String? = null,
     val usage: ClaudeUsage? = null,
-    val isComplete: Boolean = false
+    val isComplete: Boolean = false,
+    val toolUse: ToolUseInfo? = null
+)
+
+/**
+ * Information about tool use in streaming response
+ */
+data class ToolUseInfo(
+    val id: String,
+    val name: String,
+    val input: JsonObject
 )
 
 /**

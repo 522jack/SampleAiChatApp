@@ -1,7 +1,6 @@
 package com.claude.chat.data.mcp
 
-import com.claude.chat.data.model.ClaudeTool
-import com.claude.chat.data.model.McpTool
+import com.claude.chat.data.model.*
 import io.github.aakira.napier.Napier
 import io.ktor.client.*
 
@@ -13,7 +12,8 @@ class McpManager(
     private val httpClient: HttpClient? = null,
     private val weatherApiKey: String? = null
 ) {
-    private val clients = mutableListOf<McpClient>()
+    private val clients = mutableMapOf<String, McpClient>()
+    private val externalServers = mutableListOf<McpServerConfig>()
     private var _availableTools = emptyList<McpTool>()
 
     val availableTools: List<McpTool>
@@ -29,33 +29,105 @@ class McpManager(
             val simpleResult = simpleClient.initialize()
 
             if (simpleResult.isSuccess) {
-                clients.add(simpleClient)
+                clients["simple"] = simpleClient
                 Napier.i("MCP client initialized: ${simpleClient.serverInfo?.name}")
             } else {
                 Napier.e("Failed to initialize Simple MCP client", simpleResult.exceptionOrNull())
             }
 
-            // Initialize Weather MCP client if HTTP client is provided
-            if (httpClient != null) {
-                val weatherClient = WeatherMcpClient(
-                    httpClient = httpClient,
-                    apiKey = weatherApiKey ?: "demo"
-                )
-                val weatherResult = weatherClient.initialize()
-
-                if (weatherResult.isSuccess) {
-                    clients.add(weatherClient)
-                    Napier.i("MCP client initialized: ${weatherClient.serverInfo?.name}")
-                } else {
-                    Napier.e("Failed to initialize Weather MCP client", weatherResult.exceptionOrNull())
-                }
-            } else {
-                Napier.w("HTTP client not provided, Weather MCP client will not be initialized")
-            }
+            // Initialize external servers
+            initializeExternalServers()
 
             refreshTools()
         } catch (e: Exception) {
             Napier.e("Error initializing MCP manager", e)
+        }
+    }
+
+    /**
+     * Add external MCP server configuration and initialize it
+     */
+    suspend fun addExternalServer(config: McpServerConfig) {
+        if (!config.enabled) {
+            Napier.i("Skipping disabled MCP server: ${config.name}")
+            return
+        }
+
+        externalServers.add(config)
+        Napier.i("Added external MCP server: ${config.name}")
+
+        // Initialize the newly added server
+        try {
+            val client = when (config.type) {
+                McpServerType.HTTP -> {
+                    if (httpClient == null) {
+                        Napier.e("HTTP client not available for HTTP MCP server")
+                        return
+                    }
+                    HttpMcpClient(config, httpClient)
+                }
+                McpServerType.PROCESS -> ProcessMcpClient(config)
+            }
+
+            val result = client.initialize()
+            if (result.isSuccess) {
+                clients[config.id] = client
+                Napier.i("External MCP client initialized: ${config.name}")
+                refreshTools()
+            } else {
+                Napier.e("Failed to initialize ${config.name}", result.exceptionOrNull())
+            }
+        } catch (e: Exception) {
+            Napier.e("Error initializing external server ${config.name}", e)
+        }
+    }
+
+    /**
+     * Remove external MCP server
+     */
+    suspend fun removeExternalServer(serverId: String) {
+        externalServers.removeAll { it.id == serverId }
+        clients[serverId]?.close()
+        clients.remove(serverId)
+        refreshTools()
+    }
+
+    /**
+     * Get list of configured external servers
+     */
+    fun getExternalServers(): List<McpServerConfig> = externalServers.toList()
+
+    /**
+     * Initialize external MCP servers
+     */
+    private suspend fun initializeExternalServers() {
+        if (httpClient == null) {
+            Napier.w("HTTP client not provided, external servers will not be initialized")
+            return
+        }
+
+        externalServers.forEach { config ->
+            if (!config.enabled) {
+                Napier.i("Skipping disabled server: ${config.name}")
+                return@forEach
+            }
+
+            try {
+                val client = when (config.type) {
+                    McpServerType.HTTP -> HttpMcpClient(config, httpClient)
+                    McpServerType.PROCESS -> ProcessMcpClient(config)
+                }
+
+                val result = client.initialize()
+                if (result.isSuccess) {
+                    clients[config.id] = client
+                    Napier.i("External MCP client initialized: ${config.name}")
+                } else {
+                    Napier.e("Failed to initialize ${config.name}", result.exceptionOrNull())
+                }
+            } catch (e: Exception) {
+                Napier.e("Error initializing external server ${config.name}", e)
+            }
         }
     }
 
@@ -65,12 +137,19 @@ class McpManager(
     suspend fun refreshTools() {
         val allTools = mutableListOf<McpTool>()
 
-        clients.forEach { client ->
+        Napier.d("Refreshing tools from ${clients.size} clients")
+        clients.forEach { (id, client) ->
+            Napier.d("Listing tools from client: $id")
             val result = client.listTools()
             if (result.isSuccess) {
-                allTools.addAll(result.getOrNull() ?: emptyList())
+                val tools = result.getOrNull() ?: emptyList()
+                Napier.d("Client $id provided ${tools.size} tools")
+                tools.forEach { tool ->
+                    Napier.d("  - ${tool.name}: ${tool.description}")
+                }
+                allTools.addAll(tools)
             } else {
-                Napier.e("Failed to list tools from client", result.exceptionOrNull())
+                Napier.e("Failed to list tools from client $id", result.exceptionOrNull())
             }
         }
 
@@ -96,7 +175,7 @@ class McpManager(
      */
     suspend fun callTool(name: String, arguments: Map<String, Any>): Result<String> {
         // Find the client that has this tool
-        for (client in clients) {
+        for ((id, client) in clients) {
             val toolsResult = client.listTools()
             if (toolsResult.isSuccess) {
                 val tools = toolsResult.getOrNull() ?: emptyList()
@@ -122,13 +201,13 @@ class McpManager(
     /**
      * Check if any clients are initialized
      */
-    fun isInitialized(): Boolean = clients.any { it.isInitialized }
+    fun isInitialized(): Boolean = clients.any { it.value.isInitialized }
 
     /**
      * Close all clients
      */
     suspend fun close() {
-        clients.forEach { it.close() }
+        clients.forEach { (_, client) -> client.close() }
         clients.clear()
         _availableTools = emptyList()
     }

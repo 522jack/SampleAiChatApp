@@ -7,6 +7,7 @@ import com.claude.chat.data.model.ClaudeMessageRequest
 import com.claude.chat.data.model.ClaudeModel
 import com.claude.chat.data.model.McpTool
 import com.claude.chat.data.model.StreamChunk
+import com.claude.chat.data.model.ToolUseInfo
 import com.claude.chat.data.remote.ClaudeApiClient
 import com.claude.chat.domain.model.ClaudePricing
 import com.claude.chat.domain.model.Message
@@ -19,6 +20,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
@@ -181,11 +183,19 @@ class ChatRepositoryImpl(
     ): Flow<String> {
         val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
         val jsonModeEnabled = getJsonMode()
+        val mcpEnabled = getMcpEnabled()
 
         val claudeMessages = mapToClaudeMessages(messages)
         val finalSystemPrompt = prepareSystemPrompt(systemPrompt, jsonModeEnabled)
         val selectedModel = getSelectedModel()
         val temperature = getTemperature()
+
+        // Add MCP tools if enabled
+        val tools = if (mcpEnabled && mcpManager.isInitialized()) {
+            mcpManager.getClaudeTools()
+        } else {
+            null
+        }
 
         val request = ClaudeMessageRequest(
             model = selectedModel,
@@ -193,10 +203,11 @@ class ChatRepositoryImpl(
             maxTokens = MAX_TOKENS,
             stream = true,
             system = finalSystemPrompt,
-            temperature = temperature
+            temperature = temperature,
+            tools = tools
         )
 
-        Napier.d("Sending message to Claude API with ${messages.size} messages, JSON mode: $jsonModeEnabled")
+        Napier.d("Sending message to Claude API with ${messages.size} messages, JSON mode: $jsonModeEnabled, MCP tools: ${tools?.size ?: 0}")
 
         // Map StreamChunk to String for backward compatibility
         return apiClient.sendMessage(request, apiKey).map { chunk ->
@@ -207,27 +218,82 @@ class ChatRepositoryImpl(
     override suspend fun sendMessageWithUsage(
         messages: List<Message>,
         systemPrompt: String?
-    ): Flow<StreamChunk> {
+    ): Flow<StreamChunk> = flow {
         val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
         val jsonModeEnabled = getJsonMode()
+        val mcpEnabled = getMcpEnabled()
 
         val claudeMessages = mapToClaudeMessages(messages)
         val finalSystemPrompt = prepareSystemPrompt(systemPrompt, jsonModeEnabled)
         val selectedModel = getSelectedModel()
         val temperature = getTemperature()
 
+        // Add MCP tools if enabled
+        val tools = if (mcpEnabled && mcpManager.isInitialized()) {
+            val claudeTools = mcpManager.getClaudeTools()
+            Napier.d("MCP is enabled and initialized, got ${claudeTools.size} tools")
+            claudeTools.forEach { tool ->
+                Napier.d("  - Tool: ${tool.name}")
+            }
+            claudeTools
+        } else {
+            Napier.d("MCP tools NOT included: enabled=$mcpEnabled, initialized=${mcpManager.isInitialized()}")
+            null
+        }
+
         val request = ClaudeMessageRequest(
             model = selectedModel,
             messages = claudeMessages,
             maxTokens = MAX_TOKENS,
-            stream = true,
+            stream = tools.isNullOrEmpty(), // Use non-streaming when tools are present
             system = finalSystemPrompt,
-            temperature = temperature
+            temperature = temperature,
+            tools = tools
         )
 
-        Napier.d("Sending message to Claude API with token usage tracking")
+        Napier.d("Sending message to Claude API with token usage tracking, MCP tools: ${tools?.size ?: 0}, streaming: ${tools.isNullOrEmpty()}")
 
-        return apiClient.sendMessage(request, apiKey)
+        // If tools are present, use non-streaming API to get complete tool parameters
+        if (!tools.isNullOrEmpty()) {
+            val result = apiClient.sendMessageNonStreaming(request, apiKey)
+            if (result.isSuccess) {
+                val response = result.getOrThrow()
+
+                // Emit usage first
+                emit(StreamChunk(usage = response.usage))
+
+                // Process content blocks
+                response.content.forEach { content ->
+                    when (content.type) {
+                        "text" -> {
+                            content.text?.let { emit(StreamChunk(text = it)) }
+                        }
+                        "tool_use" -> {
+                            if (content.id != null && content.name != null && content.input != null) {
+                                Napier.d("Received tool_use from non-streaming API: ${content.name} with input: ${content.input}")
+                                emit(StreamChunk(
+                                    toolUse = ToolUseInfo(
+                                        id = content.id,
+                                        name = content.name,
+                                        input = content.input
+                                    )
+                                ))
+                            }
+                        }
+                    }
+                }
+
+                // Emit completion
+                emit(StreamChunk(isComplete = true))
+            } else {
+                throw result.exceptionOrNull() ?: Exception("Unknown error")
+            }
+        } else {
+            // No tools, use streaming API as normal
+            apiClient.sendMessage(request, apiKey).collect { chunk ->
+                emit(chunk)
+            }
+        }
     }
 
     override suspend fun sendMessageComparison(

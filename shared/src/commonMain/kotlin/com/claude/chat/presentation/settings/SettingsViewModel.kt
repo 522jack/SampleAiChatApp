@@ -2,7 +2,9 @@ package com.claude.chat.presentation.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.claude.chat.data.model.*
 import com.claude.chat.data.repository.ChatRepository
+import com.claude.chat.di.AppContainer
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,7 +16,8 @@ import kotlinx.coroutines.launch
  * ViewModel for settings screen
  */
 class SettingsViewModel(
-    private val repository: ChatRepository
+    private val repository: ChatRepository,
+    private val appContainer: AppContainer
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -22,6 +25,7 @@ class SettingsViewModel(
 
     init {
         loadSettings()
+        loadMcpServers()
     }
 
     fun onIntent(intent: SettingsIntent) {
@@ -38,6 +42,14 @@ class SettingsViewModel(
             is SettingsIntent.UpdateSystemPromptInput -> updateSystemPromptInput(intent.prompt)
             is SettingsIntent.UpdateTemperatureInput -> updateTemperatureInput(intent.temperature)
             is SettingsIntent.SaveTemperature -> saveTemperature(intent.temperature)
+            is SettingsIntent.AddMcpServer -> showAddServerDialog()
+            is SettingsIntent.RemoveMcpServer -> removeMcpServer(intent.serverId)
+            is SettingsIntent.ToggleMcpServer -> toggleMcpServer(intent.serverId, intent.enabled)
+            is SettingsIntent.ShowAddServerDialog -> _state.update { it.copy(showAddServerDialog = true) }
+            is SettingsIntent.HideAddServerDialog -> _state.update { it.copy(showAddServerDialog = false) }
+            is SettingsIntent.UpdateServerName -> _state.update { it.copy(newServerName = intent.name) }
+            is SettingsIntent.UpdateServerUrl -> _state.update { it.copy(newServerUrl = intent.url) }
+            is SettingsIntent.SaveNewServer -> saveNewServer()
         }
     }
 
@@ -341,6 +353,113 @@ class SettingsViewModel(
         }
     }
 
+    private fun loadMcpServers() {
+        viewModelScope.launch {
+            try {
+                val servers = appContainer.mcpManager.getExternalServers()
+                _state.update { it.copy(mcpServers = servers) }
+            } catch (e: Exception) {
+                Napier.e("Error loading MCP servers", e)
+            }
+        }
+    }
+
+    private fun showAddServerDialog() {
+        _state.update {
+            it.copy(
+                showAddServerDialog = true,
+                newServerName = "",
+                newServerUrl = ""
+            )
+        }
+    }
+
+    private fun saveNewServer() {
+        viewModelScope.launch {
+            try {
+                val name = _state.value.newServerName.trim()
+                val url = _state.value.newServerUrl.trim()
+
+                if (name.isBlank() || url.isBlank()) {
+                    _state.update { it.copy(error = "Name and URL are required") }
+                    return@launch
+                }
+
+                // Determine type based on URL format
+                val config = if (url.startsWith("http://") || url.startsWith("https://")) {
+                    // HTTP/SSE connection
+                    McpServerConfig(
+                        id = "mcp-${kotlinx.datetime.Clock.System.now().toEpochMilliseconds()}",
+                        name = name,
+                        type = McpServerType.HTTP,
+                        enabled = true,
+                        config = McpConnectionConfig.HttpConfig(
+                            url = url
+                        )
+                    )
+                } else {
+                    // Process-based connection (for desktop)
+                    McpServerConfig(
+                        id = "mcp-${kotlinx.datetime.Clock.System.now().toEpochMilliseconds()}",
+                        name = name,
+                        type = McpServerType.PROCESS,
+                        enabled = true,
+                        config = McpConnectionConfig.ProcessConfig(
+                            command = "java",
+                            args = listOf("-jar", url, "stdio")
+                        )
+                    )
+                }
+
+                appContainer.mcpManager.addExternalServer(config)
+                loadMcpServers()
+
+                _state.update {
+                    it.copy(
+                        showAddServerDialog = false,
+                        newServerName = "",
+                        newServerUrl = "",
+                        saveSuccess = true
+                    )
+                }
+            } catch (e: Exception) {
+                Napier.e("Error saving MCP server", e)
+                _state.update { it.copy(error = "Failed to add server: ${e.message}") }
+            }
+        }
+    }
+
+    private fun removeMcpServer(serverId: String) {
+        viewModelScope.launch {
+            try {
+                appContainer.mcpManager.removeExternalServer(serverId)
+                loadMcpServers()
+                _state.update { it.copy(saveSuccess = true) }
+            } catch (e: Exception) {
+                Napier.e("Error removing MCP server", e)
+                _state.update { it.copy(error = "Failed to remove server") }
+            }
+        }
+    }
+
+    private fun toggleMcpServer(serverId: String, enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                // Update server config and reinitialize if needed
+                val servers = _state.value.mcpServers.map { server ->
+                    if (server.id == serverId) {
+                        server.copy(enabled = enabled)
+                    } else {
+                        server
+                    }
+                }
+                _state.update { it.copy(mcpServers = servers) }
+            } catch (e: Exception) {
+                Napier.e("Error toggling MCP server", e)
+            }
+        }
+    }
+
     fun resetSaveSuccess() {
         _state.update { it.copy(saveSuccess = false) }
     }
@@ -359,7 +478,12 @@ data class SettingsUiState(
     val temperature: String = "1.0",
     val isLoading: Boolean = true,
     val error: String? = null,
-    val saveSuccess: Boolean = false
+    val saveSuccess: Boolean = false,
+    // MCP Server management
+    val mcpServers: List<McpServerConfig> = emptyList(),
+    val showAddServerDialog: Boolean = false,
+    val newServerName: String = "",
+    val newServerUrl: String = ""
 )
 
 /**
@@ -378,4 +502,13 @@ sealed class SettingsIntent {
     data class UpdateSystemPromptInput(val prompt: String) : SettingsIntent()
     data class UpdateTemperatureInput(val temperature: String) : SettingsIntent()
     data class SaveTemperature(val temperature: String) : SettingsIntent()
+    // MCP Server management
+    data object AddMcpServer : SettingsIntent()
+    data class RemoveMcpServer(val serverId: String) : SettingsIntent()
+    data class ToggleMcpServer(val serverId: String, val enabled: Boolean) : SettingsIntent()
+    data object ShowAddServerDialog : SettingsIntent()
+    data object HideAddServerDialog : SettingsIntent()
+    data class UpdateServerName(val name: String) : SettingsIntent()
+    data class UpdateServerUrl(val url: String) : SettingsIntent()
+    data object SaveNewServer : SettingsIntent()
 }

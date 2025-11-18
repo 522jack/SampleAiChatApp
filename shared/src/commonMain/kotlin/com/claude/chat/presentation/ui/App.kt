@@ -35,7 +35,7 @@ fun App(
     }
 
     val settingsViewModel = viewModel {
-        SettingsViewModel(appContainer.chatRepository)
+        SettingsViewModel(appContainer.chatRepository, appContainer)
     }
 
     val chatState by chatViewModel.state.collectAsState()
