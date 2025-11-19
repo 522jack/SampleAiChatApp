@@ -1,6 +1,7 @@
 package com.claude.mcp.server
 
 import com.claude.mcp.server.services.WeatherService
+import com.claude.mcp.server.services.ReminderService
 import com.claude.mcp.server.transport.SseTransport
 import com.claude.mcp.server.transport.StdioTransport
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -35,9 +36,10 @@ fun main(args: Array<String>) = runBlocking {
 
     // Create services
     val weatherService = WeatherService(httpClient, apiKey)
+    val reminderService = ReminderService()
 
     // Create MCP handler
-    val mcpHandler = McpServerHandler(weatherService)
+    val mcpHandler = McpServerHandler(weatherService, reminderService)
 
     // Start appropriate transport
     when (transport.lowercase()) {
@@ -49,7 +51,7 @@ fun main(args: Array<String>) = runBlocking {
         "sse" -> {
             val port = args.getOrNull(1)?.toIntOrNull() ?: 3000
             logger.info { "Starting in SSE mode on port $port" }
-            val sseTransport = SseTransport(mcpHandler, port)
+            val sseTransport = SseTransport(mcpHandler, reminderService, port)
             sseTransport.start()
         }
         else -> {

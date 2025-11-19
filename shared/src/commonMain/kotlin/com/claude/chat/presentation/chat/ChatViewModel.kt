@@ -52,6 +52,9 @@ class ChatViewModel(
             is ChatIntent.ReloadSettings -> reloadSettings()
             is ChatIntent.DismissCompressionNotification -> dismissCompressionNotification()
             is ChatIntent.ExecuteMcpTool -> executeMcpTool(intent.toolName, intent.arguments)
+            is ChatIntent.StartTaskSummaryPolling -> startTaskSummaryPolling()
+            is ChatIntent.StopTaskSummaryPolling -> stopTaskSummaryPolling()
+            is ChatIntent.RequestTaskSummary -> requestTaskSummary()
         }
     }
 
@@ -658,6 +661,48 @@ class ChatViewModel(
     private fun dismissCompressionNotification() {
         _state.update { it.copy(compressionNotification = null) }
     }
+
+    // ============================================================================
+    // Task Summary Polling
+    // ============================================================================
+
+    private fun startTaskSummaryPolling() {
+        _state.update { it.copy(isTaskSummaryEnabled = true) }
+        Napier.i("Task summary polling enabled")
+    }
+
+    private fun stopTaskSummaryPolling() {
+        _state.update { it.copy(isTaskSummaryEnabled = false) }
+        Napier.i("Task summary polling disabled")
+    }
+
+    private fun requestTaskSummary() {
+        Napier.d("Manual task summary requested")
+    }
+
+    /**
+     * Add task summary message to chat (called from Android-specific code)
+     */
+    fun addTaskSummaryMessage(summary: String) {
+        val summaryMessage = Message(
+            id = Uuid.random().toString(),
+            content = summary,
+            role = MessageRole.SYSTEM,
+            timestamp = Clock.System.now()
+        )
+
+        val updatedMessages = _state.value.messages + summaryMessage
+        _state.update { it.copy(messages = updatedMessages) }
+
+        viewModelScope.launch {
+            try {
+                repository.saveMessages(updatedMessages)
+                Napier.d("Task summary added to chat")
+            } catch (e: Exception) {
+                Napier.e("Error saving task summary", e)
+            }
+        }
+    }
 }
 
 /**
@@ -675,7 +720,8 @@ data class ChatUiState(
     val isModelComparisonMode: Boolean = false,
     val compressionNotification: String? = null,
     val mcpEnabled: Boolean = false,
-    val availableMcpTools: List<McpTool> = emptyList()
+    val availableMcpTools: List<McpTool> = emptyList(),
+    val isTaskSummaryEnabled: Boolean = false
 )
 
 /**
@@ -692,4 +738,7 @@ sealed class ChatIntent {
     data object ReloadSettings : ChatIntent()
     data object DismissCompressionNotification : ChatIntent()
     data class ExecuteMcpTool(val toolName: String, val arguments: Map<String, String>) : ChatIntent()
+    data object StartTaskSummaryPolling : ChatIntent()
+    data object StopTaskSummaryPolling : ChatIntent()
+    data object RequestTaskSummary : ChatIntent()
 }

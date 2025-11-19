@@ -28,7 +28,7 @@ fun MessageBubble(
     val isUser = message.role == MessageRole.USER
     val isSystem = message.role == MessageRole.SYSTEM
 
-    // Check if this is a summary message
+    // Check if this is a summary message (conversation compression)
     if (message.isSummary && isSystem) {
         // Display summary card
         Card(
@@ -80,6 +80,58 @@ fun MessageBubble(
                     text = formatTimestamp(message.timestamp),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    } else if (isSystem) {
+        // Display task summary (system message)
+        Card(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📋",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "Task Summary",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+
+                Divider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.2f)
+                )
+
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.2f
+                    ),
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+
+                Text(
+                    text = formatTimestamp(message.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }

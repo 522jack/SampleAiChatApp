@@ -12,7 +12,7 @@ import com.claude.chat.data.repository.ChatRepositoryImpl
  * Simple dependency injection container
  */
 class AppContainer {
-    private val httpClient by lazy { createHttpClient() }
+    val httpClient by lazy { createHttpClient() }
 
     private val apiClient: ClaudeApiClient by lazy {
         ClaudeApiClientImpl(httpClient)

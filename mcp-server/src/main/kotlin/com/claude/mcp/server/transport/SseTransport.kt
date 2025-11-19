@@ -1,6 +1,7 @@
 package com.claude.mcp.server.transport
 
 import com.claude.mcp.server.McpServerHandler
+import com.claude.mcp.server.services.ReminderService
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -12,6 +13,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import java.util.*
 
 private val logger = KotlinLogging.logger {}
@@ -22,6 +24,7 @@ private val logger = KotlinLogging.logger {}
  */
 class SseTransport(
     private val handler: McpServerHandler,
+    private val reminderService: ReminderService,
     private val port: Int = 3000
 ) {
     private val sessions = mutableMapOf<String, Channel<String>>()
@@ -30,6 +33,22 @@ class SseTransport(
         logger.info { "Starting SSE transport on port $port" }
 
         embeddedServer(CIO, port = port) {
+            // Subscribe to reminder notifications and broadcast to all sessions
+            launch {
+                reminderService.notifications.collect { notification ->
+                    if (notification != null) {
+                        logger.info { "Broadcasting notification to ${sessions.size} sessions" }
+                        val notificationMessage = """{"type":"notification","method":"notifications/message","params":{"level":"info","message":"${ notification.replace("\"", "\\\"").replace("\n", "\\n") }"}}"""
+                        sessions.values.forEach { channel ->
+                            try {
+                                channel.send(notificationMessage)
+                            } catch (e: Exception) {
+                                logger.error(e) { "Failed to send notification to session" }
+                            }
+                        }
+                    }
+                }
+            }
             install(CORS) {
                 anyHost()
                 allowHeader(HttpHeaders.ContentType)
@@ -134,6 +153,32 @@ class SseTransport(
                             "count" to sessions.size
                         )
                     )
+                }
+
+                // Get latest notification/summary (for polling)
+                get("/notifications/latest") {
+                    val latestNotification = reminderService.getLatestNotification()
+                    if (latestNotification != null) {
+                        val escapedNotification = latestNotification
+                            .replace("\\", "\\\\")
+                            .replace("\"", "\\\"")
+                            .replace("\n", "\\n")
+                            .replace("\r", "\\r")
+                            .replace("\t", "\\t")
+                        val json = """{"notification":"$escapedNotification","timestamp":${System.currentTimeMillis()}}"""
+                        call.respondText(
+                            json,
+                            ContentType.Application.Json,
+                            HttpStatusCode.OK
+                        )
+                    } else {
+                        val json = """{"message":"No notifications available yet"}"""
+                        call.respondText(
+                            json,
+                            ContentType.Application.Json,
+                            HttpStatusCode.NoContent
+                        )
+                    }
                 }
             }
         }.start(wait = true)
