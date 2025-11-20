@@ -1,5 +1,6 @@
 package com.claude.chat.data.mcp
 
+import com.claude.chat.data.local.SettingsStorage
 import com.claude.chat.data.model.*
 import io.github.aakira.napier.Napier
 import io.ktor.client.*
@@ -10,7 +11,8 @@ import io.ktor.client.*
  */
 class McpManager(
     private val httpClient: HttpClient? = null,
-    private val weatherApiKey: String? = null
+    private val weatherApiKey: String? = null,
+    private val settingsStorage: SettingsStorage? = null
 ) {
     private val clients = mutableMapOf<String, McpClient>()
     private val externalServers = mutableListOf<McpServerConfig>()
@@ -24,6 +26,9 @@ class McpManager(
      */
     suspend fun initialize() {
         try {
+            // Load saved external servers from storage
+            loadServersFromStorage()
+
             // Initialize simple MCP client with basic tools
             val simpleClient = SimpleMcpClient()
             val simpleResult = simpleClient.initialize()
@@ -45,16 +50,39 @@ class McpManager(
     }
 
     /**
+     * Load servers from persistent storage
+     */
+    private fun loadServersFromStorage() {
+        settingsStorage?.let { storage ->
+            val savedServers = storage.getMcpServers()
+            externalServers.clear()
+            externalServers.addAll(savedServers)
+            Napier.i("Loaded ${savedServers.size} MCP servers from storage")
+        }
+    }
+
+    /**
+     * Save servers to persistent storage
+     */
+    private fun saveServersToStorage() {
+        settingsStorage?.let { storage ->
+            storage.saveMcpServers(externalServers.toList())
+            Napier.d("Saved ${externalServers.size} MCP servers to storage")
+        }
+    }
+
+    /**
      * Add external MCP server configuration and initialize it
      */
     suspend fun addExternalServer(config: McpServerConfig) {
+        externalServers.add(config)
+        saveServersToStorage()
+        Napier.i("Added external MCP server: ${config.name}")
+
         if (!config.enabled) {
             Napier.i("Skipping disabled MCP server: ${config.name}")
             return
         }
-
-        externalServers.add(config)
-        Napier.i("Added external MCP server: ${config.name}")
 
         // Initialize the newly added server
         try {
@@ -87,9 +115,54 @@ class McpManager(
      */
     suspend fun removeExternalServer(serverId: String) {
         externalServers.removeAll { it.id == serverId }
+        saveServersToStorage()
         clients[serverId]?.close()
         clients.remove(serverId)
         refreshTools()
+    }
+
+    /**
+     * Update external MCP server (e.g., toggle enabled state)
+     */
+    suspend fun updateExternalServer(serverId: String, enabled: Boolean) {
+        val serverIndex = externalServers.indexOfFirst { it.id == serverId }
+        if (serverIndex != -1) {
+            val updatedServer = externalServers[serverIndex].copy(enabled = enabled)
+            externalServers[serverIndex] = updatedServer
+            saveServersToStorage()
+
+            // If disabling, close the client
+            if (!enabled) {
+                clients[serverId]?.close()
+                clients.remove(serverId)
+                refreshTools()
+            } else {
+                // If enabling, initialize the server
+                try {
+                    val client = when (updatedServer.type) {
+                        McpServerType.HTTP -> {
+                            if (httpClient == null) {
+                                Napier.e("HTTP client not available for HTTP MCP server")
+                                return
+                            }
+                            HttpMcpClient(updatedServer, httpClient)
+                        }
+                        McpServerType.PROCESS -> ProcessMcpClient(updatedServer)
+                    }
+
+                    val result = client.initialize()
+                    if (result.isSuccess) {
+                        clients[updatedServer.id] = client
+                        Napier.i("External MCP client initialized: ${updatedServer.name}")
+                        refreshTools()
+                    } else {
+                        Napier.e("Failed to initialize ${updatedServer.name}", result.exceptionOrNull())
+                    }
+                } catch (e: Exception) {
+                    Napier.e("Error initializing external server ${updatedServer.name}", e)
+                }
+            }
+        }
     }
 
     /**

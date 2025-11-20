@@ -3,6 +3,9 @@ package com.claude.mcp.server
 import com.claude.mcp.server.protocol.*
 import com.claude.mcp.server.services.WeatherService
 import com.claude.mcp.server.services.ReminderService
+import com.claude.mcp.server.services.DocumentSearchService
+import com.claude.mcp.server.services.DocumentSummarizationService
+import com.claude.mcp.server.services.DocumentStorageService
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
@@ -15,7 +18,10 @@ private val logger = KotlinLogging.logger {}
  */
 class McpServerHandler(
     private val weatherService: WeatherService,
-    private val reminderService: ReminderService
+    private val reminderService: ReminderService,
+    private val documentSearchService: DocumentSearchService,
+    private val documentSummarizationService: DocumentSummarizationService,
+    private val documentStorageService: DocumentStorageService
 ) {
     private val json = Json {
         prettyPrint = false
@@ -80,9 +86,10 @@ class McpServerHandler(
                 name = "weather-mcp-server",
                 version = "1.0.0"
             ),
-            instructions = "MCP Server with Weather and Task Reminder features:\n" +
+            instructions = "MCP Server with Weather, Task Reminder, and Document Processing features:\n" +
                 "- Weather: Get current weather and forecasts for cities worldwide using OpenWeather API\n" +
-                "- Reminders: Manage tasks with automatic periodic summaries every 60 seconds showing active tasks and completed tasks from today"
+                "- Reminders: Manage tasks with automatic periodic summaries every 60 seconds showing active tasks and completed tasks from today\n" +
+                "- Documents: Search for documents in project folders, generate summaries with key information and statistics, and save summaries to files"
         )
 
         return JsonRpcResponse(
@@ -229,6 +236,86 @@ class McpServerHandler(
                         add("id")
                     })
                 }
+            ),
+            Tool(
+                name = "search_documents",
+                description = "Search for documents in the project folder. Supports file pattern matching and recursive search.",
+                inputSchema = buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject {
+                        put("folder_path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Relative or absolute path to search in (default: project root '.')")
+                            put("default", ".")
+                        })
+                        put("pattern", buildJsonObject {
+                            put("type", "string")
+                            put("description", "File name pattern to match (supports wildcards like *.txt, *.md)")
+                            put("default", "*")
+                        })
+                        put("recursive", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Whether to search recursively in subdirectories")
+                            put("default", true)
+                        })
+                        put("max_depth", buildJsonObject {
+                            put("type", "number")
+                            put("description", "Maximum depth for recursive search")
+                            put("default", 5)
+                        })
+                    })
+                }
+            ),
+            Tool(
+                name = "summarize_document",
+                description = "Summarize a document. Extracts key information, statistics, and main points from the document.",
+                inputSchema = buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject {
+                        put("document_path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Path to the document to summarize (can be from search_documents result)")
+                        })
+                        put("max_preview_length", buildJsonObject {
+                            put("type", "number")
+                            put("description", "Maximum length of preview text in characters")
+                            put("default", 500)
+                        })
+                    })
+                    put("required", buildJsonArray {
+                        add("document_path")
+                    })
+                }
+            ),
+            Tool(
+                name = "save_summary",
+                description = "Save a document summary to a file. Creates a markdown file with the summary in the specified folder.",
+                inputSchema = buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject {
+                        put("summary_content", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Summary content to save (can be from summarize_document result)")
+                        })
+                        put("original_document_path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Path to the original document that was summarized")
+                        })
+                        put("output_folder", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Folder where to save the summary (relative to project root)")
+                            put("default", "summaries")
+                        })
+                        put("filename", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Custom filename for the summary (optional, will be auto-generated if not provided)")
+                        })
+                    })
+                    put("required", buildJsonArray {
+                        add("summary_content")
+                        add("original_document_path")
+                    })
+                }
             )
         )
 
@@ -273,6 +360,9 @@ class McpServerHandler(
             "list_tasks" -> executeListTasks(callRequest.arguments)
             "get_task_summary" -> executeGetTaskSummary()
             "delete_task" -> executeDeleteTask(callRequest.arguments)
+            "search_documents" -> executeSearchDocuments(callRequest.arguments)
+            "summarize_document" -> executeSummarizeDocument(callRequest.arguments)
+            "save_summary" -> executeSaveSummary(callRequest.arguments)
             else -> CallToolResult(
                 content = listOf(ToolContent(type = "text", text = "Unknown tool: ${callRequest.name}")),
                 isError = true
@@ -564,6 +654,135 @@ class McpServerHandler(
                     ToolContent(
                         type = "text",
                         text = "Error deleting task: ${result.exceptionOrNull()?.message}"
+                    )
+                ),
+                isError = true
+            )
+        }
+    }
+
+    private fun executeSearchDocuments(arguments: JsonObject?): CallToolResult {
+        val folderPath = arguments?.get("folder_path")?.jsonPrimitive?.content ?: "."
+        val pattern = arguments?.get("pattern")?.jsonPrimitive?.content ?: "*"
+        val recursive = arguments?.get("recursive")?.jsonPrimitive?.booleanOrNull ?: true
+        val maxDepth = arguments?.get("max_depth")?.jsonPrimitive?.intOrNull ?: 5
+
+        logger.info { "Searching documents: folder=$folderPath, pattern=$pattern, recursive=$recursive" }
+
+        val result = documentSearchService.searchDocuments(folderPath, pattern, recursive, maxDepth)
+
+        return if (result.isSuccess) {
+            val documents = result.getOrNull()!!
+            val message = documentSearchService.formatSearchResults(documents)
+            CallToolResult(
+                content = listOf(ToolContent(type = "text", text = message)),
+                isError = false
+            )
+        } else {
+            CallToolResult(
+                content = listOf(
+                    ToolContent(
+                        type = "text",
+                        text = "Error searching documents: ${result.exceptionOrNull()?.message}"
+                    )
+                ),
+                isError = true
+            )
+        }
+    }
+
+    private fun executeSummarizeDocument(arguments: JsonObject?): CallToolResult {
+        val documentPath = arguments?.get("document_path")?.jsonPrimitive?.content
+            ?: return CallToolResult(
+                content = listOf(ToolContent(type = "text", text = "document_path parameter is required")),
+                isError = true
+            )
+
+        val maxPreviewLength = arguments["max_preview_length"]?.jsonPrimitive?.intOrNull ?: 500
+
+        logger.info { "Summarizing document: $documentPath" }
+
+        // First, read the document
+        val contentResult = documentSearchService.getDocumentContent(documentPath)
+        if (contentResult.isFailure) {
+            return CallToolResult(
+                content = listOf(
+                    ToolContent(
+                        type = "text",
+                        text = "Error reading document: ${contentResult.exceptionOrNull()?.message}"
+                    )
+                ),
+                isError = true
+            )
+        }
+
+        val content = contentResult.getOrNull()!!
+
+        // Then summarize it
+        val summaryResult = documentSummarizationService.summarizeDocument(
+            documentPath,
+            content,
+            maxPreviewLength
+        )
+
+        return if (summaryResult.isSuccess) {
+            val summary = summaryResult.getOrNull()!!
+            val message = documentSummarizationService.formatSummary(summary)
+            CallToolResult(
+                content = listOf(ToolContent(type = "text", text = message)),
+                isError = false
+            )
+        } else {
+            CallToolResult(
+                content = listOf(
+                    ToolContent(
+                        type = "text",
+                        text = "Error summarizing document: ${summaryResult.exceptionOrNull()?.message}"
+                    )
+                ),
+                isError = true
+            )
+        }
+    }
+
+    private fun executeSaveSummary(arguments: JsonObject?): CallToolResult {
+        val summaryContent = arguments?.get("summary_content")?.jsonPrimitive?.content
+            ?: return CallToolResult(
+                content = listOf(ToolContent(type = "text", text = "summary_content parameter is required")),
+                isError = true
+            )
+
+        val originalDocumentPath = arguments["original_document_path"]?.jsonPrimitive?.content
+            ?: return CallToolResult(
+                content = listOf(ToolContent(type = "text", text = "original_document_path parameter is required")),
+                isError = true
+            )
+
+        val outputFolder = arguments["output_folder"]?.jsonPrimitive?.content ?: "summaries"
+        val filename = arguments["filename"]?.jsonPrimitive?.content
+
+        logger.info { "Saving summary for: $originalDocumentPath to folder: $outputFolder" }
+
+        val result = documentStorageService.saveSummary(
+            summaryContent,
+            originalDocumentPath,
+            outputFolder,
+            filename
+        )
+
+        return if (result.isSuccess) {
+            val savedPath = result.getOrNull()!!
+            val message = documentStorageService.formatSaveResult(savedPath, originalDocumentPath)
+            CallToolResult(
+                content = listOf(ToolContent(type = "text", text = message)),
+                isError = false
+            )
+        } else {
+            CallToolResult(
+                content = listOf(
+                    ToolContent(
+                        type = "text",
+                        text = "Error saving summary: ${result.exceptionOrNull()?.message}"
                     )
                 ),
                 isError = true

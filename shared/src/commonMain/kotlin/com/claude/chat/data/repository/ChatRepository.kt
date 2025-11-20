@@ -52,6 +52,15 @@ interface ChatRepository {
     ): Flow<StreamChunk>
 
     /**
+     * Send a message with tool use support and automatic tool execution loop
+     */
+    suspend fun sendMessageWithToolLoop(
+        messages: List<Message>,
+        systemPrompt: String? = null,
+        onToolCall: suspend (toolName: String, arguments: Map<String, String>) -> Result<String>
+    ): Flow<StreamChunk>
+
+    /**
      * Send a message to multiple models and get comparison responses
      */
     suspend fun sendMessageComparison(

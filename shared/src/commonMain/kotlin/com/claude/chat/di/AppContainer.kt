@@ -25,7 +25,8 @@ class AppContainer {
     val mcpManager by lazy {
         McpManager(
             httpClient = httpClient,
-            weatherApiKey = null // Use demo key, or set your OpenWeather API key here
+            weatherApiKey = null, // Use demo key, or set your OpenWeather API key here
+            settingsStorage = settingsStorage
         )
     }
 

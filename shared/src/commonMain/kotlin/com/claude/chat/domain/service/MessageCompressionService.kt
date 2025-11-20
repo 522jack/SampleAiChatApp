@@ -18,7 +18,7 @@ class MessageCompressionService(
     private val apiClient: ClaudeApiClient
 ) {
     companion object {
-        private const val COMPRESSION_TOKEN_THRESHOLD = 800 // Compress when messages exceed this token count
+        private const val COMPRESSION_TOKEN_THRESHOLD = 8192 // Compress when messages exceed this token count
         private const val MAX_TOKENS = 4096
         private const val SUMMARIZATION_MODEL = "claude-3-5-haiku-20241022" // Fast and cheap model for summarization
         private const val CHARS_PER_TOKEN = 4 // Approximate characters per token
@@ -186,7 +186,9 @@ class MessageCompressionService(
         val claudeMessages = listOf(
             ClaudeMessage(
                 role = "user",
-                content = "$SUMMARIZATION_PROMPT\n\n$conversationText"
+                content = com.claude.chat.data.model.ClaudeMessageContent.Text(
+                    "$SUMMARIZATION_PROMPT\n\n$conversationText"
+                )
             )
         )
 

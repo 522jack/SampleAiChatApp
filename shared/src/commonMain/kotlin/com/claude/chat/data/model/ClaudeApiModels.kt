@@ -1,8 +1,9 @@
 package com.claude.chat.data.model
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.*
+import kotlinx.serialization.descriptors.*
+import kotlinx.serialization.encoding.*
+import kotlinx.serialization.json.*
 
 /**
  * Claude API request/response models
@@ -24,7 +25,31 @@ data class ClaudeMessageRequest(
 @Serializable
 data class ClaudeMessage(
     val role: String, // "user" or "assistant"
-    val content: String
+    val content: ClaudeMessageContent
+)
+
+// Content can be either a simple string or a list of content blocks
+@Serializable(with = ClaudeMessageContentSerializer::class)
+sealed class ClaudeMessageContent {
+    data class Text(val text: String) : ClaudeMessageContent()
+    data class Blocks(val blocks: List<ClaudeContentBlock>) : ClaudeMessageContent()
+}
+
+@Serializable
+data class ClaudeContentBlock(
+    val type: String, // "text", "tool_use", "tool_result"
+    // For text blocks
+    val text: String? = null,
+    // For tool_use blocks
+    val id: String? = null,
+    val name: String? = null,
+    val input: JsonObject? = null,
+    // For tool_result blocks
+    @SerialName("tool_use_id")
+    val toolUseId: String? = null,
+    val content: String? = null,
+    @SerialName("is_error")
+    val isError: Boolean? = null
 )
 
 @Serializable
@@ -147,6 +172,45 @@ enum class ClaudeModel(
     companion object {
         fun fromModelId(modelId: String): ClaudeModel {
             return entries.find { it.modelId == modelId } ?: HAIKU_3_5
+        }
+    }
+}
+
+/**
+ * Custom serializer for ClaudeMessageContent
+ * Serializes Text as a simple string, Blocks as an array
+ */
+@OptIn(InternalSerializationApi::class)
+object ClaudeMessageContentSerializer : KSerializer<ClaudeMessageContent> {
+    override val descriptor: SerialDescriptor =
+        buildSerialDescriptor("ClaudeMessageContent", PolymorphicKind.SEALED)
+
+    override fun serialize(encoder: Encoder, value: ClaudeMessageContent) {
+        when (value) {
+            is ClaudeMessageContent.Text -> encoder.encodeString(value.text)
+            is ClaudeMessageContent.Blocks -> {
+                val jsonEncoder = encoder as JsonEncoder
+                val jsonArray = buildJsonArray {
+                    value.blocks.forEach { block ->
+                        add(jsonEncoder.json.encodeToJsonElement(block))
+                    }
+                }
+                jsonEncoder.encodeJsonElement(jsonArray)
+            }
+        }
+    }
+
+    override fun deserialize(decoder: Decoder): ClaudeMessageContent {
+        val jsonDecoder = decoder as JsonDecoder
+        val element = jsonDecoder.decodeJsonElement()
+
+        return when (element) {
+            is JsonPrimitive -> ClaudeMessageContent.Text(element.content)
+            is JsonArray -> {
+                val blocks = element.map { jsonDecoder.json.decodeFromJsonElement<ClaudeContentBlock>(it) }
+                ClaudeMessageContent.Blocks(blocks)
+            }
+            else -> throw SerializationException("Unknown content type")
         }
     }
 }

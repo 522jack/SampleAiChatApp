@@ -446,16 +446,12 @@ class SettingsViewModel(
         viewModelScope.launch {
             try {
                 // Update server config and reinitialize if needed
-                val servers = _state.value.mcpServers.map { server ->
-                    if (server.id == serverId) {
-                        server.copy(enabled = enabled)
-                    } else {
-                        server
-                    }
-                }
-                _state.update { it.copy(mcpServers = servers) }
+                appContainer.mcpManager.updateExternalServer(serverId, enabled)
+                loadMcpServers()
+                _state.update { it.copy(saveSuccess = true) }
             } catch (e: Exception) {
                 Napier.e("Error toggling MCP server", e)
+                _state.update { it.copy(error = "Failed to toggle server") }
             }
         }
     }

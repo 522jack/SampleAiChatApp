@@ -247,23 +247,34 @@ class ChatViewModel(
         var assistantContent = ""
         var inputTokens: Int? = null
         var outputTokens = 0
-        val toolUseCalls = mutableListOf<com.claude.chat.data.model.ToolUseInfo>()
 
-        repository.sendMessageWithUsage(
+        // Use the new tool loop method that handles multi-turn tool use
+        repository.sendMessageWithToolLoop(
             messages = messages,
-            systemPrompt = systemPrompt
+            systemPrompt = systemPrompt,
+            onToolCall = { toolName, arguments ->
+                // This callback is called for each tool execution
+                Napier.d("Tool loop executing: $toolName")
+                assistantContent += "\n\n🔧 Using tool: $toolName"
+                updateAssistantMessage(assistantMessageId, assistantContent, inputTokens, outputTokens)
+
+                val result = repository.callMcpTool(toolName, arguments)
+
+                if (result.isSuccess) {
+                    val resultText = result.getOrNull() ?: ""
+                    assistantContent += "\n\n✅ Tool result ($toolName):\n$resultText"
+                } else {
+                    assistantContent += "\n\n❌ Tool error ($toolName): ${result.exceptionOrNull()?.message}"
+                }
+
+                updateAssistantMessage(assistantMessageId, assistantContent, inputTokens, outputTokens)
+                result
+            }
         ).catch { error ->
             handleStreamingError(error)
         }.collect { chunk ->
             // Accumulate text content
             chunk.text?.let { assistantContent += it }
-
-            // Collect tool use requests
-            chunk.toolUse?.let { toolUse ->
-                Napier.d("Claude requested tool: ${toolUse.name}")
-                toolUseCalls.add(toolUse)
-                assistantContent += "\n\n🔧 Using tool: ${toolUse.name}"
-            }
 
             // Update token usage
             chunk.usage?.let { usage ->
@@ -273,54 +284,13 @@ class ChatViewModel(
             }
 
             // Update UI if we have new content or usage data
-            if (chunk.text != null || chunk.usage != null || chunk.toolUse != null) {
+            if (chunk.text != null || chunk.usage != null) {
                 updateAssistantMessage(
                     assistantMessageId,
                     assistantContent,
                     inputTokens,
                     outputTokens
                 )
-            }
-        }
-
-        // Execute any tool calls that Claude requested
-        if (toolUseCalls.isNotEmpty()) {
-            Napier.d("Executing ${toolUseCalls.size} tool calls")
-            for (toolUse in toolUseCalls) {
-                try {
-                    // Convert JsonObject to Map<String, String> for MCP
-                    val arguments = toolUse.input.entries.associate { (key, value) ->
-                        key to when (value) {
-                            is kotlinx.serialization.json.JsonPrimitive -> value.content
-                            else -> value.toString()
-                        }
-                    }
-                    Napier.d("Calling tool ${toolUse.name} with arguments: $arguments")
-
-                    val result = repository.callMcpTool(toolUse.name, arguments)
-
-                    if (result.isSuccess) {
-                        assistantContent += "\n\n✅ Tool result (${toolUse.name}):\n${result.getOrNull()}"
-                    } else {
-                        assistantContent += "\n\n❌ Tool error (${toolUse.name}): ${result.exceptionOrNull()?.message}"
-                    }
-
-                    updateAssistantMessage(
-                        assistantMessageId,
-                        assistantContent,
-                        inputTokens,
-                        outputTokens
-                    )
-                } catch (e: Exception) {
-                    Napier.e("Error executing tool ${toolUse.name}", e)
-                    assistantContent += "\n\n❌ Error executing ${toolUse.name}: ${e.message}"
-                    updateAssistantMessage(
-                        assistantMessageId,
-                        assistantContent,
-                        inputTokens,
-                        outputTokens
-                    )
-                }
             }
         }
 

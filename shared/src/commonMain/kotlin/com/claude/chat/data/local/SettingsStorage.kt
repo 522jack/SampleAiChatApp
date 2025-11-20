@@ -30,6 +30,7 @@ class SettingsStorage(
         private const val KEY_TEMPERATURE = "temperature"
         private const val KEY_MODEL_COMPARISON_MODE = "model_comparison_mode"
         private const val KEY_MCP_ENABLED = "mcp_enabled"
+        private const val KEY_MCP_SERVERS = "mcp_servers"
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
         private const val DEFAULT_TEMPERATURE = 1.0
     }
@@ -136,6 +137,27 @@ class SettingsStorage(
     fun clearAll() {
         settings.clear()
         Napier.d("All settings cleared")
+    }
+
+    fun getMcpServers(): List<com.claude.chat.data.model.McpServerConfig> {
+        val serversJson = settings.getStringOrNull(KEY_MCP_SERVERS) ?: return emptyList()
+
+        return try {
+            json.decodeFromString<List<com.claude.chat.data.model.McpServerConfig>>(serversJson)
+        } catch (e: Exception) {
+            Napier.e("Error loading MCP servers", e)
+            emptyList()
+        }
+    }
+
+    fun saveMcpServers(servers: List<com.claude.chat.data.model.McpServerConfig>) {
+        try {
+            val serversJson = json.encodeToString(servers)
+            settings.putString(KEY_MCP_SERVERS, serversJson)
+            Napier.d("Saved ${servers.size} MCP servers")
+        } catch (e: Exception) {
+            Napier.e("Error saving MCP servers", e)
+        }
     }
 }
 

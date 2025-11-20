@@ -2,7 +2,9 @@ package com.claude.chat.data.repository
 
 import com.claude.chat.data.local.SettingsStorage
 import com.claude.chat.data.mcp.McpManager
+import com.claude.chat.data.model.ClaudeContentBlock
 import com.claude.chat.data.model.ClaudeMessage
+import com.claude.chat.data.model.ClaudeMessageContent
 import com.claude.chat.data.model.ClaudeMessageRequest
 import com.claude.chat.data.model.ClaudeModel
 import com.claude.chat.data.model.McpTool
@@ -102,9 +104,22 @@ class ChatRepositoryImpl(
                     MessageRole.ASSISTANT -> "assistant"
                     MessageRole.SYSTEM -> "user" // Summary messages sent as user messages for context
                 },
-                content = message.content
+                content = ClaudeMessageContent.Text(message.content)
             )
         }
+    }
+
+    /**
+     * Creates a ClaudeMessage with content blocks for tool use conversations
+     */
+    private fun createMessageWithBlocks(
+        role: String,
+        blocks: List<ClaudeContentBlock>
+    ): ClaudeMessage {
+        return ClaudeMessage(
+            role = role,
+            content = ClaudeMessageContent.Blocks(blocks)
+        )
     }
 
     /**
@@ -294,6 +309,171 @@ class ChatRepositoryImpl(
                 emit(chunk)
             }
         }
+    }
+
+    override suspend fun sendMessageWithToolLoop(
+        messages: List<Message>,
+        systemPrompt: String?,
+        onToolCall: suspend (toolName: String, arguments: Map<String, String>) -> Result<String>
+    ): Flow<StreamChunk> = flow {
+        val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
+        val jsonModeEnabled = getJsonMode()
+        val mcpEnabled = getMcpEnabled()
+
+        val finalSystemPrompt = prepareSystemPrompt(systemPrompt, jsonModeEnabled)
+        val selectedModel = getSelectedModel()
+        val temperature = getTemperature()
+
+        // Add MCP tools if enabled
+        val tools = if (mcpEnabled && mcpManager.isInitialized()) {
+            val claudeTools = mcpManager.getClaudeTools()
+            Napier.d("Tool loop: MCP enabled with ${claudeTools.size} tools")
+            claudeTools
+        } else {
+            Napier.d("Tool loop: MCP not enabled")
+            null
+        }
+
+        if (tools.isNullOrEmpty()) {
+            Napier.w("Tool loop called but no tools available, falling back to normal flow")
+            // No tools, just use normal flow
+            sendMessageWithUsage(messages, systemPrompt).collect { emit(it) }
+            return@flow
+        }
+
+        // Start tool use loop
+        var conversationMessages = mapToClaudeMessages(messages).toMutableList()
+        var continueLoop = true
+        var loopCount = 0
+        val maxLoops = 10 // Prevent infinite loops
+
+        while (continueLoop && loopCount < maxLoops) {
+            loopCount++
+            Napier.d("Tool loop iteration $loopCount")
+
+            val request = ClaudeMessageRequest(
+                model = selectedModel,
+                messages = conversationMessages,
+                maxTokens = MAX_TOKENS,
+                stream = false,
+                system = finalSystemPrompt,
+                temperature = temperature,
+                tools = tools
+            )
+
+            // Send request to Claude
+            val result = apiClient.sendMessageNonStreaming(request, apiKey)
+            if (result.isFailure) {
+                throw result.exceptionOrNull() ?: Exception("Unknown error")
+            }
+
+            val response = result.getOrThrow()
+
+            // Emit usage information
+            emit(StreamChunk(usage = response.usage))
+
+            // Process response content
+            val assistantBlocks = mutableListOf<ClaudeContentBlock>()
+            val toolUseCalls = mutableListOf<ToolUseInfo>()
+
+            response.content.forEach { content ->
+                when (content.type) {
+                    "text" -> {
+                        content.text?.let {
+                            emit(StreamChunk(text = it))
+                            assistantBlocks.add(
+                                ClaudeContentBlock(
+                                    type = "text",
+                                    text = it
+                                )
+                            )
+                        }
+                    }
+                    "tool_use" -> {
+                        if (content.id != null && content.name != null && content.input != null) {
+                            Napier.d("Claude requested tool: ${content.name}")
+                            val toolUse = ToolUseInfo(
+                                id = content.id,
+                                name = content.name,
+                                input = content.input
+                            )
+                            toolUseCalls.add(toolUse)
+                            assistantBlocks.add(
+                                ClaudeContentBlock(
+                                    type = "tool_use",
+                                    id = content.id,
+                                    name = content.name,
+                                    input = content.input
+                                )
+                            )
+                            emit(StreamChunk(toolUse = toolUse))
+                        }
+                    }
+                }
+            }
+
+            // Add assistant's response to conversation
+            if (assistantBlocks.isNotEmpty()) {
+                conversationMessages.add(createMessageWithBlocks("assistant", assistantBlocks))
+            }
+
+            // Execute tool calls if any
+            if (toolUseCalls.isNotEmpty()) {
+                val toolResultBlocks = mutableListOf<ClaudeContentBlock>()
+
+                for (toolUse in toolUseCalls) {
+                    Napier.d("Executing tool: ${toolUse.name}")
+
+                    // Convert JsonObject to Map<String, String>
+                    val arguments = toolUse.input.entries.associate { (key, value) ->
+                        key to when (value) {
+                            is kotlinx.serialization.json.JsonPrimitive -> value.content
+                            else -> value.toString()
+                        }
+                    }
+
+                    val toolResult = onToolCall(toolUse.name, arguments)
+
+                    val resultBlock = if (toolResult.isSuccess) {
+                        val resultText = toolResult.getOrNull() ?: ""
+                        Napier.d("Tool ${toolUse.name} succeeded, result length: ${resultText.length}")
+                        ClaudeContentBlock(
+                            type = "tool_result",
+                            toolUseId = toolUse.id,
+                            content = resultText
+                        )
+                    } else {
+                        val errorMsg = toolResult.exceptionOrNull()?.message ?: "Unknown error"
+                        Napier.e("Tool ${toolUse.name} failed: $errorMsg")
+                        ClaudeContentBlock(
+                            type = "tool_result",
+                            toolUseId = toolUse.id,
+                            content = "Error: $errorMsg",
+                            isError = true
+                        )
+                    }
+
+                    toolResultBlocks.add(resultBlock)
+                }
+
+                // Add tool results to conversation as a user message
+                conversationMessages.add(createMessageWithBlocks("user", toolResultBlocks))
+
+                // Continue loop to send results back to Claude
+                continueLoop = true
+            } else {
+                // No tool calls, conversation is complete
+                continueLoop = false
+            }
+        }
+
+        if (loopCount >= maxLoops) {
+            Napier.w("Tool loop reached max iterations ($maxLoops)")
+        }
+
+        // Emit completion
+        emit(StreamChunk(isComplete = true))
+        Napier.d("Tool loop completed after $loopCount iterations")
     }
 
     override suspend fun sendMessageComparison(
