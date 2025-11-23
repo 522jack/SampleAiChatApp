@@ -247,12 +247,29 @@ class McpManager(
      * Call a tool by name
      */
     suspend fun callTool(name: String, arguments: Map<String, Any>): Result<String> {
+        Napier.i("======== McpManager.callTool() ========")
+        Napier.i("Looking for tool: $name")
+        Napier.i("Available clients: ${clients.size}")
+        clients.forEach { (id, client) ->
+            Napier.i("  - Client ID: $id, isInitialized: ${client.isInitialized}, serverInfo: ${client.serverInfo?.name}")
+        }
+
         // Find the client that has this tool
         for ((id, client) in clients) {
+            Napier.d("Checking client $id for tool $name...")
+
+            if (!client.isInitialized) {
+                Napier.w("  ⚠️ Client $id is NOT initialized, skipping")
+                continue
+            }
+
             val toolsResult = client.listTools()
             if (toolsResult.isSuccess) {
                 val tools = toolsResult.getOrNull() ?: emptyList()
+                Napier.d("  Client $id has ${tools.size} tools")
+
                 if (tools.any { it.name == name }) {
+                    Napier.i("  ✓ Found tool $name in client $id!")
                     val result = client.callTool(name, arguments)
                     return if (result.isSuccess) {
                         val toolResult = result.getOrNull()!!
@@ -260,14 +277,24 @@ class McpManager(
                             .filter { it.type == "text" }
                             .mapNotNull { it.text }
                             .joinToString("\n")
+                        Napier.i("  ✓ Tool call successful!")
+                        Napier.i("======== End McpManager.callTool() ========")
                         Result.success(text)
                     } else {
+                        Napier.e("  ❌ Tool call failed: ${result.exceptionOrNull()?.message}")
+                        Napier.i("======== End McpManager.callTool() ========")
                         Result.failure(result.exceptionOrNull() ?: Exception("Unknown error"))
                     }
+                } else {
+                    Napier.d("  Tool $name not found in client $id (has: ${tools.map { it.name }})")
                 }
+            } else {
+                Napier.e("  ❌ Failed to list tools from client $id: ${toolsResult.exceptionOrNull()?.message}")
             }
         }
 
+        Napier.e("❌ Tool not found: $name (searched ${clients.size} clients)")
+        Napier.i("======== End McpManager.callTool() ========")
         return Result.failure(Exception("Tool not found: $name"))
     }
 

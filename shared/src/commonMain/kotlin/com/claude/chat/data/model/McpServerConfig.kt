@@ -64,4 +64,25 @@ object McpServerPresets {
             env = if (apiKey != null) mapOf("OPENWEATHER_API_KEY" to apiKey) else emptyMap()
         )
     )
+
+    fun localCurrencyServer(port: Int = 3001) = McpServerConfig(
+        id = "local-currency",
+        name = "Currency Server (Local)",
+        type = McpServerType.HTTP,
+        enabled = true,
+        config = McpConnectionConfig.HttpConfig(
+            url = "http://localhost:$port"
+        )
+    )
+
+    fun currencyServerProcess(jarPath: String) = McpServerConfig(
+        id = "currency-process",
+        name = "Currency Server (Process)",
+        type = McpServerType.PROCESS,
+        enabled = true,
+        config = McpConnectionConfig.ProcessConfig(
+            command = "java",
+            args = listOf("-jar", jarPath, "stdio")
+        )
+    )
 }

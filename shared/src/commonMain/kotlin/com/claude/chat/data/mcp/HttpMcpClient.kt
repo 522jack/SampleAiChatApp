@@ -40,9 +40,12 @@ class HttpMcpClient(
 
     override suspend fun initialize(): Result<McpInitializeResult> {
         return try {
-            Napier.d("Initializing HTTP MCP client: ${config.name}")
-            Napier.d("Base URL from config: $baseUrl")
-            Napier.d("Full URL will be: $baseUrl/mcp")
+            Napier.i("======== HttpMcpClient.initialize() ========")
+            Napier.i("Initializing HTTP MCP client: ${config.name}")
+            Napier.i("Config ID: ${config.id}")
+            Napier.i("Enabled: ${config.enabled}")
+            Napier.i("Base URL from config: $baseUrl")
+            Napier.i("Full URL will be: $baseUrl/mcp")
 
             val params = buildJsonObject {
                 put("protocolVersion", "2024-11-05")
@@ -60,14 +63,16 @@ class HttpMcpClient(
                 params = params
             )
 
+            Napier.i("Sending initialize request to: $baseUrl/mcp")
             val response: HttpResponse = httpClient.post("$baseUrl/mcp") {
                 contentType(ContentType.Application.Json)
                 setBody(Json.encodeToString(JsonRpcRequest.serializer(), request))
             }
 
+            Napier.i("Received response status: ${response.status}")
             if (response.status.isSuccess()) {
                 val body = response.bodyAsText()
-                Napier.d("Initialize response: $body")
+                Napier.i("Initialize response: ${body.take(200)}...")
 
                 val jsonResponse = json.decodeFromString<JsonRpcResponse>(body)
 
@@ -83,7 +88,8 @@ class HttpMcpClient(
                 serverInfo = info
 
                 isInitialized = true
-                Napier.i("HTTP MCP client initialized successfully: ${info.name}")
+                Napier.i("✓ HTTP MCP client initialized successfully: ${info.name}")
+                Napier.i("======== End HttpMcpClient.initialize() ========")
 
                 Result.success(McpInitializeResult(
                     protocolVersion = "2024-11-05",
@@ -92,11 +98,15 @@ class HttpMcpClient(
                 ))
             } else {
                 val error = "HTTP error: ${response.status}"
-                Napier.e(error)
+                Napier.e("❌ $error")
+                Napier.i("======== End HttpMcpClient.initialize() (FAILED) ========")
                 Result.failure(Exception(error))
             }
         } catch (e: Exception) {
-            Napier.e("Failed to initialize HTTP MCP client", e)
+            Napier.e("❌ Failed to initialize HTTP MCP client: ${config.name}", e)
+            Napier.e("Error details: ${e.message}")
+            e.printStackTrace()
+            Napier.i("======== End HttpMcpClient.initialize() (EXCEPTION) ========")
             Result.failure(e)
         }
     }

@@ -30,6 +30,26 @@ fun App(
         Napier.base(DebugAntilog())
     }
 
+    // Initialize MCP servers for orchestration
+    LaunchedEffect(Unit) {
+        try {
+            Napier.i("Initializing MCP Tools and external servers...")
+
+            // Enable MCP Tools
+            appContainer.chatRepository.saveMcpEnabled(true)
+
+            // Initialize built-in MCP tools
+            appContainer.chatRepository.initializeMcpTools()
+
+            // Initialize external MCP servers (Weather + Currency)
+            appContainer.initializeExternalMcpServers()
+
+            Napier.i("MCP orchestration initialized successfully!")
+        } catch (e: Exception) {
+            Napier.e("Failed to initialize MCP orchestration", e)
+        }
+    }
+
     val chatViewModel = viewModel {
         ChatViewModel(appContainer.chatRepository)
     }

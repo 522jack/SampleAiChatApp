@@ -53,6 +53,11 @@ secrets.properties
 apikey.txt
 *.env
 
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
 # Logs
 *.log
 logs/
@@ -68,3 +73,7 @@ logs/
 
 # Virtual machine crash logs
 hs_err_pid*
+/start-mcp-servers.sh
+/MCP_ORCHESTRATION_GUIDE.md
+/ORCHESTRATION_QUICKSTART.md
+/README_ORCHESTRATION.md
