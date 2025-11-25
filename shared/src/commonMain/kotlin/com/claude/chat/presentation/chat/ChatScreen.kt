@@ -65,7 +65,7 @@ fun ChatScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Claude Chat")
+                        Text("Ai Agent")
                         // MCP Tools indicator
                         if (state.mcpEnabled && state.availableMcpTools.isNotEmpty()) {
                             McpToolsIndicator(toolCount = state.availableMcpTools.size)

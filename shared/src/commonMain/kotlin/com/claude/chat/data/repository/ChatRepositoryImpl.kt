@@ -17,6 +17,8 @@ import com.claude.chat.domain.model.MessageRole
 import com.claude.chat.domain.model.ModelComparisonResponse
 import com.claude.chat.domain.model.ModelResponse
 import com.claude.chat.domain.service.MessageCompressionService
+import com.claude.chat.domain.service.RagService
+import com.claude.chat.platform.createFileStorage
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -37,10 +39,12 @@ import kotlin.uuid.Uuid
 class ChatRepositoryImpl(
     private val apiClient: ClaudeApiClient,
     private val settingsStorage: SettingsStorage,
-    private val mcpManager: McpManager
+    private val mcpManager: McpManager,
+    private val ragService: RagService
 ) : ChatRepository {
 
     private val compressionService = MessageCompressionService(apiClient)
+    private val fileStorage = createFileStorage()
 
     override suspend fun initializeMcpTools() {
         mcpManager.initialize()
@@ -69,6 +73,7 @@ class ChatRepositoryImpl(
         private const val MAX_TOKENS = 8192
         private const val HAIKU_3_MAX_TOKENS = 4096
         private const val DEFAULT_SYSTEM_PROMPT = "You are Claude, a helpful AI assistant."
+        private const val RAG_INDEX_FILENAME = "rag_index.json"
 
         // Models for comparison: Haiku 3 (fast), Sonnet 3.7 (balanced), Sonnet 4.5 (most capable)
         private val COMPARISON_MODELS = listOf(
@@ -616,6 +621,131 @@ class ChatRepositoryImpl(
         } catch (e: Exception) {
             Napier.e("Error compressing messages", e)
             return Result.failure(e)
+        }
+    }
+
+    // ============================================================================
+    // RAG (Retrieval-Augmented Generation) Methods
+    // ============================================================================
+
+    override suspend fun indexDocument(title: String, content: String): Result<String> {
+        return try {
+            val result = ragService.indexDocument(title, content)
+            if (result.isSuccess) {
+                // Save index to storage
+                saveRagIndex()
+                Result.success(result.getOrThrow().id)
+            } else {
+                Result.failure(result.exceptionOrNull() ?: Exception("Failed to index document"))
+            }
+        } catch (e: Exception) {
+            Napier.e("Error indexing document", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun searchRagIndex(query: String, topK: Int): Result<String> {
+        return try {
+            val searchResult = ragService.search(query, topK)
+            if (searchResult.isSuccess) {
+                val results = searchResult.getOrThrow()
+                val context = ragService.generateContext(results)
+                Result.success(context)
+            } else {
+                Result.failure(searchResult.exceptionOrNull() ?: Exception("Failed to search"))
+            }
+        } catch (e: Exception) {
+            Napier.e("Error searching RAG index", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getIndexedDocuments(): List<com.claude.chat.data.model.RagDocument> {
+        return ragService.getIndexedDocuments()
+    }
+
+    override suspend fun removeRagDocument(documentId: String): Boolean {
+        val removed = ragService.removeDocument(documentId)
+        if (removed) {
+            saveRagIndex()
+        }
+        return removed
+    }
+
+    override suspend fun clearRagIndex() {
+        ragService.clearIndex()
+        settingsStorage.clearRagIndex()
+
+        // Also delete the file
+        val deleted = fileStorage.deleteFile(RAG_INDEX_FILENAME)
+        if (deleted) {
+            Napier.d("RAG index file deleted")
+        }
+    }
+
+    override suspend fun saveRagIndex(): Result<Boolean> {
+        return try {
+            val indexJson = ragService.saveIndexToJson()
+            if (indexJson != null) {
+                // Save to file only (Preferences has size limits)
+                val fileSaved = fileStorage.writeTextFile(RAG_INDEX_FILENAME, indexJson)
+                if (fileSaved) {
+                    Napier.i("RAG index saved to file: $RAG_INDEX_FILENAME (${indexJson.length} chars)")
+                    Result.success(true)
+                } else {
+                    Napier.w("Failed to save RAG index to file")
+                    Result.failure(Exception("Failed to save RAG index to file"))
+                }
+            } else {
+                Napier.d("No RAG index to save")
+                Result.success(false)
+            }
+        } catch (e: Exception) {
+            Napier.e("Error saving RAG index", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun loadRagIndex(): Result<Boolean> {
+        return try {
+            // Try to load from file first
+            val indexJson = fileStorage.readTextFile(RAG_INDEX_FILENAME)
+            if (indexJson != null) {
+                val loaded = ragService.loadIndexFromJson(indexJson)
+                Napier.i("RAG index loaded from file: ${indexJson.length} chars, loaded=$loaded")
+                Result.success(loaded)
+            } else {
+                // Fallback: try old storage in Preferences (for backward compatibility)
+                val oldIndexJson = settingsStorage.getRagIndex()
+                if (oldIndexJson != null) {
+                    Napier.d("Found RAG index in old storage, migrating to file...")
+                    val loaded = ragService.loadIndexFromJson(oldIndexJson)
+                    if (loaded) {
+                        // Save to new file storage and clear old storage
+                        saveRagIndex()
+                        settingsStorage.clearRagIndex()
+                    }
+                    Result.success(loaded)
+                } else {
+                    Napier.d("No RAG index found")
+                    Result.success(false)
+                }
+            }
+        } catch (e: Exception) {
+            Napier.e("Error loading RAG index", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getRagMode(): Boolean {
+        return settingsStorage.getRagMode()
+    }
+
+    override suspend fun saveRagMode(enabled: Boolean) {
+        settingsStorage.saveRagMode(enabled)
+        if (enabled) {
+            // Load index when RAG mode is enabled
+            loadRagIndex()
         }
     }
 }

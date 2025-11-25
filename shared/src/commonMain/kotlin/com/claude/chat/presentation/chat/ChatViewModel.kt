@@ -34,6 +34,8 @@ class ChatViewModel(
         loadSelectedModel()
         loadModelComparisonMode()
         loadMcpTools()
+        loadRagMode()
+        loadRagDocuments()
     }
 
     // ============================================================================
@@ -55,6 +57,9 @@ class ChatViewModel(
             is ChatIntent.StartTaskSummaryPolling -> startTaskSummaryPolling()
             is ChatIntent.StopTaskSummaryPolling -> stopTaskSummaryPolling()
             is ChatIntent.RequestTaskSummary -> requestTaskSummary()
+            is ChatIntent.IndexDocument -> indexDocument(intent.title, intent.content)
+            is ChatIntent.RemoveRagDocument -> removeRagDocument(intent.documentId)
+            is ChatIntent.LoadRagDocuments -> loadRagDocuments()
         }
     }
 
@@ -65,6 +70,31 @@ class ChatViewModel(
     private fun reloadSettings() {
         loadTechSpecMode()
         loadModelComparisonMode()
+        loadRagMode()
+    }
+
+    private fun loadRagMode() {
+        viewModelScope.launch {
+            try {
+                val isRagMode = repository.getRagMode()
+                _state.update { it.copy(isRagMode = isRagMode) }
+                Napier.d("RAG mode loaded: $isRagMode")
+            } catch (e: Exception) {
+                Napier.e("Error loading RAG mode", e)
+            }
+        }
+    }
+
+    private fun loadRagDocuments() {
+        viewModelScope.launch {
+            try {
+                val documents = repository.getIndexedDocuments()
+                _state.update { it.copy(ragDocuments = documents) }
+                Napier.d("Loaded ${documents.size} RAG documents")
+            } catch (e: Exception) {
+                Napier.e("Error loading RAG documents", e)
+            }
+        }
     }
 
     private fun checkApiKey() {
@@ -242,7 +272,25 @@ class ChatViewModel(
     }
 
     private suspend fun sendMessageStreaming(userText: String, messages: List<Message>) {
-        val systemPrompt = resolveSystemPrompt(userText)
+        var systemPrompt = resolveSystemPrompt(userText)
+
+        // Add RAG context if enabled
+        if (_state.value.isRagMode) {
+            val ragContextResult = repository.searchRagIndex(userText, topK = 3)
+            if (ragContextResult.isSuccess) {
+                val ragContext = ragContextResult.getOrNull()
+                if (!ragContext.isNullOrBlank()) {
+                    systemPrompt = """$systemPrompt
+
+Context from knowledge base:
+$ragContext
+
+Please use the above context to answer the user's question. If the context doesn't contain relevant information, answer based on your general knowledge."""
+                    Napier.d("Added RAG context to system prompt")
+                }
+            }
+        }
+
         val assistantMessageId = Uuid.random().toString()
         var assistantContent = ""
         var inputTokens: Int? = null
@@ -673,6 +721,63 @@ class ChatViewModel(
             }
         }
     }
+
+    // ============================================================================
+    // RAG (Retrieval-Augmented Generation)
+    // ============================================================================
+
+    private fun indexDocument(title: String, content: String) {
+        viewModelScope.launch {
+            try {
+                _state.update { it.copy(isLoading = true) }
+
+                val result = repository.indexDocument(title, content)
+
+                if (result.isSuccess) {
+                    Napier.d("Document indexed successfully: $title")
+                    loadRagDocuments()
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = null
+                        )
+                    }
+                } else {
+                    val error = result.exceptionOrNull()?.message ?: "Failed to index document"
+                    Napier.e("Error indexing document: $error")
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = error
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Napier.e("Error indexing document", e)
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Failed to index document"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun removeRagDocument(documentId: String) {
+        viewModelScope.launch {
+            try {
+                val removed = repository.removeRagDocument(documentId)
+                if (removed) {
+                    Napier.d("Document removed: $documentId")
+                    loadRagDocuments()
+                }
+            } catch (e: Exception) {
+                Napier.e("Error removing document", e)
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
 }
 
 /**
@@ -691,7 +796,9 @@ data class ChatUiState(
     val compressionNotification: String? = null,
     val mcpEnabled: Boolean = false,
     val availableMcpTools: List<McpTool> = emptyList(),
-    val isTaskSummaryEnabled: Boolean = false
+    val isTaskSummaryEnabled: Boolean = false,
+    val isRagMode: Boolean = false,
+    val ragDocuments: List<com.claude.chat.data.model.RagDocument> = emptyList()
 )
 
 /**
@@ -711,4 +818,7 @@ sealed class ChatIntent {
     data object StartTaskSummaryPolling : ChatIntent()
     data object StopTaskSummaryPolling : ChatIntent()
     data object RequestTaskSummary : ChatIntent()
+    data class IndexDocument(val title: String, val content: String) : ChatIntent()
+    data class RemoveRagDocument(val documentId: String) : ChatIntent()
+    data object LoadRagDocuments : ChatIntent()
 }

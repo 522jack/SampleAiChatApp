@@ -1,4 +1,4 @@
-rootProject.name = "ClaudeChatKMP"
+rootProject.name = "AiAgent"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {

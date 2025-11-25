@@ -163,4 +163,53 @@ interface ChatRepository {
      * Returns true if compression was performed
      */
     suspend fun compressMessages(): Result<Boolean>
+
+    // ============================================================================
+    // RAG (Retrieval-Augmented Generation) Methods
+    // ============================================================================
+
+    /**
+     * Index a document for RAG
+     */
+    suspend fun indexDocument(title: String, content: String): Result<String>
+
+    /**
+     * Search for relevant content in indexed documents
+     */
+    suspend fun searchRagIndex(query: String, topK: Int = 5): Result<String>
+
+    /**
+     * Get all indexed documents
+     */
+    suspend fun getIndexedDocuments(): List<com.claude.chat.data.model.RagDocument>
+
+    /**
+     * Remove a document from RAG index
+     */
+    suspend fun removeRagDocument(documentId: String): Boolean
+
+    /**
+     * Clear RAG index
+     */
+    suspend fun clearRagIndex()
+
+    /**
+     * Save RAG index to storage
+     */
+    suspend fun saveRagIndex(): Result<Boolean>
+
+    /**
+     * Load RAG index from storage
+     */
+    suspend fun loadRagIndex(): Result<Boolean>
+
+    /**
+     * Check if RAG mode is enabled
+     */
+    suspend fun getRagMode(): Boolean
+
+    /**
+     * Set RAG mode
+     */
+    suspend fun saveRagMode(enabled: Boolean)
 }

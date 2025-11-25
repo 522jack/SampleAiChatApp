@@ -5,10 +5,14 @@ import com.claude.chat.data.mcp.McpManager
 import com.claude.chat.data.model.McpServerPresets
 import com.claude.chat.data.remote.ClaudeApiClient
 import com.claude.chat.data.remote.ClaudeApiClientImpl
+import com.claude.chat.data.remote.OllamaClient
 import com.claude.chat.data.remote.createHttpClient
 import com.claude.chat.data.repository.ChatRepository
 import com.claude.chat.data.repository.ChatRepositoryImpl
+import com.claude.chat.domain.service.RagService
+import com.claude.chat.domain.service.TextChunker
 import io.github.aakira.napier.Napier
+import kotlinx.coroutines.launch
 
 /**
  * Simple dependency injection container
@@ -32,8 +36,29 @@ class AppContainer {
         )
     }
 
+    val ollamaClient by lazy {
+        OllamaClient(httpClient)
+    }
+
+    private val textChunker by lazy {
+        TextChunker()
+    }
+
+    val ragService by lazy {
+        RagService(ollamaClient, textChunker)
+    }
+
     val chatRepository: ChatRepository by lazy {
-        ChatRepositoryImpl(apiClient, settingsStorage, mcpManager)
+        ChatRepositoryImpl(apiClient, settingsStorage, mcpManager, ragService).also {
+            // Auto-load RAG index on startup
+            kotlinx.coroutines.MainScope().launch {
+                try {
+                    it.loadRagIndex()
+                } catch (e: Exception) {
+                    Napier.e("Failed to load RAG index on startup", e)
+                }
+            }
+        }
     }
 
     /**

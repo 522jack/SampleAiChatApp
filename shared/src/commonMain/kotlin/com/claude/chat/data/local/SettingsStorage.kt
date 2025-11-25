@@ -31,6 +31,8 @@ class SettingsStorage(
         private const val KEY_MODEL_COMPARISON_MODE = "model_comparison_mode"
         private const val KEY_MCP_ENABLED = "mcp_enabled"
         private const val KEY_MCP_SERVERS = "mcp_servers"
+        private const val KEY_RAG_MODE = "rag_mode"
+        private const val KEY_RAG_INDEX = "rag_index"
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
         private const val DEFAULT_TEMPERATURE = 1.0
     }
@@ -158,6 +160,29 @@ class SettingsStorage(
         } catch (e: Exception) {
             Napier.e("Error saving MCP servers", e)
         }
+    }
+
+    fun getRagMode(): Boolean {
+        return settings.getBoolean(KEY_RAG_MODE, false)
+    }
+
+    fun saveRagMode(enabled: Boolean) {
+        settings.putBoolean(KEY_RAG_MODE, enabled)
+        Napier.d("RAG mode ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun getRagIndex(): String? {
+        return settings.getStringOrNull(KEY_RAG_INDEX)
+    }
+
+    fun saveRagIndex(indexJson: String) {
+        settings.putString(KEY_RAG_INDEX, indexJson)
+        Napier.d("RAG index saved")
+    }
+
+    fun clearRagIndex() {
+        settings.remove(KEY_RAG_INDEX)
+        Napier.d("RAG index cleared")
     }
 }
 

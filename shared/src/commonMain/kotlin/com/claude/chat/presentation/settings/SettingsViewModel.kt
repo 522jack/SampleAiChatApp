@@ -26,6 +26,7 @@ class SettingsViewModel(
     init {
         loadSettings()
         loadMcpServers()
+        loadRagDocuments()
     }
 
     fun onIntent(intent: SettingsIntent) {
@@ -50,6 +51,14 @@ class SettingsViewModel(
             is SettingsIntent.UpdateServerName -> _state.update { it.copy(newServerName = intent.name) }
             is SettingsIntent.UpdateServerUrl -> _state.update { it.copy(newServerUrl = intent.url) }
             is SettingsIntent.SaveNewServer -> saveNewServer()
+            // RAG intents
+            is SettingsIntent.ToggleRagMode -> toggleRagMode(intent.enabled)
+            is SettingsIntent.ShowAddDocumentDialog -> _state.update { it.copy(showAddDocumentDialog = true) }
+            is SettingsIntent.HideAddDocumentDialog -> _state.update { it.copy(showAddDocumentDialog = false, newDocumentTitle = "", newDocumentContent = "") }
+            is SettingsIntent.UpdateDocumentTitle -> _state.update { it.copy(newDocumentTitle = intent.title) }
+            is SettingsIntent.UpdateDocumentContent -> _state.update { it.copy(newDocumentContent = intent.content) }
+            is SettingsIntent.SaveNewDocument -> saveNewDocument()
+            is SettingsIntent.RemoveRagDocument -> removeRagDocument(intent.documentId)
         }
     }
 
@@ -63,6 +72,7 @@ class SettingsViewModel(
                 val temperature = repository.getTemperature()
                 val comparisonMode = repository.getModelComparisonMode()
                 val mcpEnabled = repository.getMcpEnabled()
+                val ragMode = repository.getRagMode()
 
                 // Log key info for debugging
                 if (apiKey.isNotBlank()) {
@@ -82,6 +92,7 @@ class SettingsViewModel(
                         techSpecModeEnabled = techSpecMode,
                         modelComparisonModeEnabled = comparisonMode,
                         mcpEnabled = mcpEnabled,
+                        ragModeEnabled = ragMode,
                         temperature = temperature.toString(),
                         isLoading = false
                     )
@@ -459,6 +470,145 @@ class SettingsViewModel(
     fun resetSaveSuccess() {
         _state.update { it.copy(saveSuccess = false) }
     }
+
+    // ============================================================================
+    // RAG Methods
+    // ============================================================================
+
+    private fun toggleRagMode(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.saveRagMode(enabled)
+                _state.update { it.copy(ragModeEnabled = enabled) }
+                Napier.d("RAG mode ${if (enabled) "enabled" else "disabled"}")
+            } catch (e: Exception) {
+                Napier.e("Error toggling RAG mode", e)
+                _state.update { it.copy(error = "Failed to update RAG mode setting") }
+            }
+        }
+    }
+
+    private fun loadRagDocuments() {
+        viewModelScope.launch {
+            try {
+                val documents = repository.getIndexedDocuments()
+                _state.update { it.copy(ragDocuments = documents) }
+                Napier.d("Loaded ${documents.size} RAG documents")
+            } catch (e: Exception) {
+                Napier.e("Error loading RAG documents", e)
+            }
+        }
+    }
+
+    private fun saveNewDocument() {
+        viewModelScope.launch {
+            try {
+                _state.update { it.copy(isLoading = true, error = null) }
+
+                val title = _state.value.newDocumentTitle.trim()
+                val content = _state.value.newDocumentContent.trim()
+
+                if (title.isBlank() || content.isBlank()) {
+                    _state.update {
+                        it.copy(
+                            error = "Title and content are required",
+                            isLoading = false
+                        )
+                    }
+                    return@launch
+                }
+
+                // Check OLLAMA availability before indexing
+                Napier.d("Checking OLLAMA availability...")
+                val isOllamaAvailable = try {
+                    appContainer.ollamaClient.checkHealth()
+                } catch (e: Exception) {
+                    Napier.e("OLLAMA health check failed", e)
+                    false
+                }
+
+                if (!isOllamaAvailable) {
+                    _state.update {
+                        it.copy(
+                            error = "Cannot connect to OLLAMA at localhost:11434. Please:\n" +
+                                    "1. Install OLLAMA from https://ollama.ai\n" +
+                                    "2. Start OLLAMA service\n" +
+                                    "3. Run: ollama pull nomic-embed-text",
+                            isLoading = false
+                        )
+                    }
+                    return@launch
+                }
+
+                Napier.d("OLLAMA is available, proceeding with indexing...")
+                val result = repository.indexDocument(title, content)
+
+                if (result.isSuccess) {
+                    loadRagDocuments()
+                    _state.update {
+                        it.copy(
+                            showAddDocumentDialog = false,
+                            newDocumentTitle = "",
+                            newDocumentContent = "",
+                            saveSuccess = true,
+                            isLoading = false,
+                            error = null
+                        )
+                    }
+                    Napier.d("Document indexed successfully: $title")
+                } else {
+                    val exception = result.exceptionOrNull()
+                    val errorMessage = when {
+                        exception?.message?.contains("too large", ignoreCase = true) == true ->
+                            "File too large. Maximum size is 50MB or 10M characters."
+                        exception?.message?.contains("Too many chunks", ignoreCase = true) == true ->
+                            "Document is too complex. Try splitting it into smaller files."
+                        exception?.message?.contains("OLLAMA", ignoreCase = true) == true ->
+                            "Cannot connect to OLLAMA. Make sure it's running on localhost:11434"
+                        else -> "Failed to index document: ${exception?.message ?: "Unknown error"}"
+                    }
+                    _state.update {
+                        it.copy(
+                            error = errorMessage,
+                            isLoading = false
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Napier.e("Error saving document", e)
+                val errorMessage = when {
+                    e.message?.contains("too large", ignoreCase = true) == true ->
+                        "File too large. Maximum size is 50MB or 10M characters."
+                    e.message?.contains("OutOfMemoryError", ignoreCase = true) == true ->
+                        "Not enough memory. Try a smaller file or increase heap size."
+                    else -> "Failed to save document: ${e.message}"
+                }
+                _state.update {
+                    it.copy(
+                        error = errorMessage,
+                        isLoading = false
+                    )
+                }
+            }
+        }
+    }
+
+    private fun removeRagDocument(documentId: String) {
+        viewModelScope.launch {
+            try {
+                val removed = repository.removeRagDocument(documentId)
+                if (removed) {
+                    loadRagDocuments()
+                    _state.update { it.copy(saveSuccess = true) }
+                    Napier.d("Document removed: $documentId")
+                }
+            } catch (e: Exception) {
+                Napier.e("Error removing document", e)
+                _state.update { it.copy(error = "Failed to remove document") }
+            }
+        }
+    }
+
 }
 
 /**
@@ -479,7 +629,13 @@ data class SettingsUiState(
     val mcpServers: List<McpServerConfig> = emptyList(),
     val showAddServerDialog: Boolean = false,
     val newServerName: String = "",
-    val newServerUrl: String = ""
+    val newServerUrl: String = "",
+    // RAG management
+    val ragModeEnabled: Boolean = false,
+    val ragDocuments: List<RagDocument> = emptyList(),
+    val showAddDocumentDialog: Boolean = false,
+    val newDocumentTitle: String = "",
+    val newDocumentContent: String = ""
 )
 
 /**
@@ -507,4 +663,12 @@ sealed class SettingsIntent {
     data class UpdateServerName(val name: String) : SettingsIntent()
     data class UpdateServerUrl(val url: String) : SettingsIntent()
     data object SaveNewServer : SettingsIntent()
+    // RAG management
+    data class ToggleRagMode(val enabled: Boolean) : SettingsIntent()
+    data object ShowAddDocumentDialog : SettingsIntent()
+    data object HideAddDocumentDialog : SettingsIntent()
+    data class UpdateDocumentTitle(val title: String) : SettingsIntent()
+    data class UpdateDocumentContent(val content: String) : SettingsIntent()
+    data object SaveNewDocument : SettingsIntent()
+    data class RemoveRagDocument(val documentId: String) : SettingsIntent()
 }

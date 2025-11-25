@@ -6,12 +6,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.claude.chat.platform.rememberFilePickerHelper
 import kotlinx.coroutines.delay
 
 /**
@@ -427,6 +429,130 @@ fun SettingsScreen(
                 }
             }
 
+            // RAG Mode Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "RAG Mode (Knowledge Base)",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            "Use indexed documents as knowledge base for responses",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = state.ragModeEnabled,
+                        onCheckedChange = { onIntent(SettingsIntent.ToggleRagMode(it)) }
+                    )
+                }
+            }
+
+            // RAG Documents Management Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Knowledge Base Documents",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Button(
+                            onClick = { onIntent(SettingsIntent.ShowAddDocumentDialog) }
+                        ) {
+                            Text("Add Document")
+                        }
+                    }
+
+                    Text(
+                        "Documents are indexed and used to answer questions when RAG mode is enabled. Requires OLLAMA running locally.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (state.ragDocuments.isEmpty()) {
+                        Text(
+                            "No documents indexed. Add documents to build your knowledge base!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    } else {
+                        Text(
+                            "${state.ragDocuments.size} document(s) indexed",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        state.ragDocuments.forEach { document ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            document.title,
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                        Text(
+                                            "${document.content.length} characters",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            "Added: ${document.timestamp}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { onIntent(SettingsIntent.RemoveRagDocument(document.id)) }
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Remove document",
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Clear Data Section
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -558,6 +684,178 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { onIntent(SettingsIntent.HideAddServerDialog) }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Add RAG Document dialog
+    if (state.showAddDocumentDialog) {
+        val filePickerHelper = rememberFilePickerHelper()
+
+        AlertDialog(
+            onDismissRequest = { onIntent(SettingsIntent.HideAddDocumentDialog) },
+            title = { Text("Add Document to Knowledge Base") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = state.newDocumentTitle,
+                        onValueChange = { onIntent(SettingsIntent.UpdateDocumentTitle(it)) },
+                        label = { Text("Document Title") },
+                        placeholder = { Text("Kotlin Documentation") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.isLoading
+                    )
+
+                    // Show selected file info if content is loaded
+                    if (state.newDocumentContent.isNotBlank()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "File loaded",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        "${state.newDocumentContent.length} characters",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onIntent(SettingsIntent.UpdateDocumentContent("")) }
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Clear file"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // File upload button
+                    Button(
+                        onClick = {
+                            filePickerHelper.pickTextFile { content ->
+                                content?.let {
+                                    onIntent(SettingsIntent.UpdateDocumentContent(it))
+                                    // Auto-set title from first line if title is empty
+                                    if (state.newDocumentTitle.isBlank()) {
+                                        val firstLine = it.lines().firstOrNull()?.take(50) ?: "Document"
+                                        onIntent(SettingsIntent.UpdateDocumentTitle(firstLine))
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.isLoading
+                    ) {
+                        Icon(
+                            Icons.Default.Upload,
+                            contentDescription = "Upload file",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Select File (.txt, .md)")
+                    }
+
+                    if (state.error == null) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    "Requirements:",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    "• OLLAMA running on localhost:11434",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    "• Model: nomic-embed-text installed",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    "• Install: https://ollama.ai",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
+
+                    // Show error in dialog if present
+                    state.error?.let { error ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer
+                            )
+                        ) {
+                            Text(
+                                error,
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+
+                    if (state.isLoading) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                "Indexing document...",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { onIntent(SettingsIntent.SaveNewDocument) },
+                    enabled = state.newDocumentTitle.isNotBlank() &&
+                             state.newDocumentContent.isNotBlank() &&
+                             !state.isLoading
+                ) {
+                    Text("Index Document")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { onIntent(SettingsIntent.HideAddDocumentDialog) },
+                    enabled = !state.isLoading
+                ) {
                     Text("Cancel")
                 }
             }
