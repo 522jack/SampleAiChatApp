@@ -212,4 +212,14 @@ interface ChatRepository {
      * Set RAG mode
      */
     suspend fun saveRagMode(enabled: Boolean)
+
+    /**
+     * Check if RAG reranking is enabled
+     */
+    suspend fun getRagRerankingEnabled(): Boolean
+
+    /**
+     * Set RAG reranking enabled state
+     */
+    suspend fun saveRagRerankingEnabled(enabled: Boolean)
 }

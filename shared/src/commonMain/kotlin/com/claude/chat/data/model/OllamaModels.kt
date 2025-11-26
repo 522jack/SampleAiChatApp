@@ -21,6 +21,20 @@ data class OllamaEmbeddingResponse(
 )
 
 /**
+ * Options for Ollama generate API
+ */
+@Serializable
+data class OllamaOptions(
+    val temperature: Double? = null,
+    @SerialName("top_p")
+    val topP: Double? = null,
+    @SerialName("top_k")
+    val topK: Int? = null,
+    @SerialName("num_predict")
+    val numPredict: Int? = null
+)
+
+/**
  * Request for Ollama generate API (for chat completion)
  */
 @Serializable
@@ -28,7 +42,8 @@ data class OllamaGenerateRequest(
     val model: String,
     val prompt: String,
     val stream: Boolean = false,
-    val context: List<String>? = null
+    val context: List<String>? = null,
+    val options: OllamaOptions? = null
 )
 
 /**

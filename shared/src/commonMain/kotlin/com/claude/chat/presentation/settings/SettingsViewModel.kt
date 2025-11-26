@@ -26,7 +26,7 @@ class SettingsViewModel(
     init {
         loadSettings()
         loadMcpServers()
-        loadRagDocuments()
+        loadRagIndexAndDocuments()
     }
 
     fun onIntent(intent: SettingsIntent) {
@@ -53,6 +53,7 @@ class SettingsViewModel(
             is SettingsIntent.SaveNewServer -> saveNewServer()
             // RAG intents
             is SettingsIntent.ToggleRagMode -> toggleRagMode(intent.enabled)
+            is SettingsIntent.ToggleRagReranking -> toggleRagReranking(intent.enabled)
             is SettingsIntent.ShowAddDocumentDialog -> _state.update { it.copy(showAddDocumentDialog = true) }
             is SettingsIntent.HideAddDocumentDialog -> _state.update { it.copy(showAddDocumentDialog = false, newDocumentTitle = "", newDocumentContent = "") }
             is SettingsIntent.UpdateDocumentTitle -> _state.update { it.copy(newDocumentTitle = intent.title) }
@@ -73,6 +74,7 @@ class SettingsViewModel(
                 val comparisonMode = repository.getModelComparisonMode()
                 val mcpEnabled = repository.getMcpEnabled()
                 val ragMode = repository.getRagMode()
+                val ragReranking = repository.getRagRerankingEnabled()
 
                 // Log key info for debugging
                 if (apiKey.isNotBlank()) {
@@ -93,6 +95,7 @@ class SettingsViewModel(
                         modelComparisonModeEnabled = comparisonMode,
                         mcpEnabled = mcpEnabled,
                         ragModeEnabled = ragMode,
+                        ragRerankingEnabled = ragReranking,
                         temperature = temperature.toString(),
                         isLoading = false
                     )
@@ -488,6 +491,40 @@ class SettingsViewModel(
         }
     }
 
+    private fun toggleRagReranking(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.saveRagRerankingEnabled(enabled)
+                _state.update { it.copy(ragRerankingEnabled = enabled) }
+                Napier.d("RAG reranking ${if (enabled) "enabled" else "disabled"}")
+            } catch (e: Exception) {
+                Napier.e("Error toggling RAG reranking", e)
+                _state.update { it.copy(error = "Failed to update RAG reranking setting") }
+            }
+        }
+    }
+
+    private fun loadRagIndexAndDocuments() {
+        viewModelScope.launch {
+            try {
+                // Load the RAG index first
+                val loadResult = repository.loadRagIndex()
+                if (loadResult.isSuccess) {
+                    Napier.d("RAG index loaded successfully")
+                } else {
+                    Napier.d("No RAG index found or failed to load")
+                }
+
+                // Then load the documents
+                val documents = repository.getIndexedDocuments()
+                _state.update { it.copy(ragDocuments = documents) }
+                Napier.d("Loaded ${documents.size} RAG documents")
+            } catch (e: Exception) {
+                Napier.e("Error loading RAG index and documents", e)
+            }
+        }
+    }
+
     private fun loadRagDocuments() {
         viewModelScope.launch {
             try {
@@ -632,6 +669,7 @@ data class SettingsUiState(
     val newServerUrl: String = "",
     // RAG management
     val ragModeEnabled: Boolean = false,
+    val ragRerankingEnabled: Boolean = false,
     val ragDocuments: List<RagDocument> = emptyList(),
     val showAddDocumentDialog: Boolean = false,
     val newDocumentTitle: String = "",
@@ -665,6 +703,7 @@ sealed class SettingsIntent {
     data object SaveNewServer : SettingsIntent()
     // RAG management
     data class ToggleRagMode(val enabled: Boolean) : SettingsIntent()
+    data class ToggleRagReranking(val enabled: Boolean) : SettingsIntent()
     data object ShowAddDocumentDialog : SettingsIntent()
     data object HideAddDocumentDialog : SettingsIntent()
     data class UpdateDocumentTitle(val title: String) : SettingsIntent()

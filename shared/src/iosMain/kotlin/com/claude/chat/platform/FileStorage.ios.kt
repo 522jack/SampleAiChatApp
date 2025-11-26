@@ -1,6 +1,7 @@
 package com.claude.chat.platform
 
 import io.github.aakira.napier.Napier
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import platform.Foundation.*
@@ -8,6 +9,7 @@ import platform.Foundation.*
 /**
  * iOS implementation of FileStorage
  */
+@OptIn(ExperimentalForeignApi::class)
 private class IosFileStorage : FileStorage {
     private val documentsDirectory: String
         get() {

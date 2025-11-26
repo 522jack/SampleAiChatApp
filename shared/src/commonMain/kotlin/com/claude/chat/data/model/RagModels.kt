@@ -56,5 +56,20 @@ data class RagIndex(
 data class RagSearchResult(
     val chunk: ChunkEmbedding,
     val similarity: Double,
-    val documentTitle: String
+    val documentTitle: String,
+    val rerankScore: Double? = null
+)
+
+/**
+ * Configuration for RAG search filtering and reranking
+ */
+data class RagSearchConfig(
+    val topK: Int = 5,
+    val minSimilarity: Double = 0.6,
+    val enableReranking: Boolean = false,
+    val rerankTopN: Int = 20,
+    val minRerankScore: Double = 0.9,
+    val useHybridScoring: Boolean = false,
+    val similarityWeight: Double = 0.7,
+    val rerankWeight: Double = 0.3
 )

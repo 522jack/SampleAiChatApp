@@ -33,6 +33,7 @@ class SettingsStorage(
         private const val KEY_MCP_SERVERS = "mcp_servers"
         private const val KEY_RAG_MODE = "rag_mode"
         private const val KEY_RAG_INDEX = "rag_index"
+        private const val KEY_RAG_RERANKING_ENABLED = "rag_reranking_enabled"
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
         private const val DEFAULT_TEMPERATURE = 1.0
     }
@@ -183,6 +184,15 @@ class SettingsStorage(
     fun clearRagIndex() {
         settings.remove(KEY_RAG_INDEX)
         Napier.d("RAG index cleared")
+    }
+
+    fun getRagRerankingEnabled(): Boolean {
+        return settings.getBoolean(KEY_RAG_RERANKING_ENABLED, false)
+    }
+
+    fun saveRagRerankingEnabled(enabled: Boolean) {
+        settings.putBoolean(KEY_RAG_RERANKING_ENABLED, enabled)
+        Napier.d("RAG reranking ${if (enabled) "enabled" else "disabled"}")
     }
 }
 

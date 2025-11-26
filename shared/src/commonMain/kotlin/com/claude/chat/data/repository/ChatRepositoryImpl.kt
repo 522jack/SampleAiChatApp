@@ -646,7 +646,26 @@ class ChatRepositoryImpl(
 
     override suspend fun searchRagIndex(query: String, topK: Int): Result<String> {
         return try {
-            val searchResult = ragService.search(query, topK)
+            val rerankingEnabled = getRagRerankingEnabled()
+
+            val searchResult = if (rerankingEnabled) {
+                // Use advanced search with reranking
+                val config = com.claude.chat.data.model.RagSearchConfig(
+                    topK = topK,
+                    minSimilarity = 0.1,          // Low threshold for initial search (reranking will filter)
+                    enableReranking = true,
+                    rerankTopN = topK * 4,        // Rerank 4x more candidates for better selection
+                    minRerankScore = 0.3,         // Lower filter - model may give conservative scores
+                    useHybridScoring = true,      // Combine similarity + rerank scores
+                    similarityWeight = 0.5,       // Equal weight between similarity and rerank
+                    rerankWeight = 0.5
+                )
+                ragService.searchWithConfig(query, config)
+            } else {
+                // Use simple search without reranking
+                ragService.search(query, topK, minSimilarity = 0.3)
+            }
+
             if (searchResult.isSuccess) {
                 val results = searchResult.getOrThrow()
                 val context = ragService.generateContext(results)
@@ -747,5 +766,13 @@ class ChatRepositoryImpl(
             // Load index when RAG mode is enabled
             loadRagIndex()
         }
+    }
+
+    override suspend fun getRagRerankingEnabled(): Boolean {
+        return settingsStorage.getRagRerankingEnabled()
+    }
+
+    override suspend fun saveRagRerankingEnabled(enabled: Boolean) {
+        settingsStorage.saveRagRerankingEnabled(enabled)
     }
 }

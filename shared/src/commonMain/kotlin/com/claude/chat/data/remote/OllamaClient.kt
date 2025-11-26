@@ -4,6 +4,7 @@ import com.claude.chat.data.model.OllamaEmbeddingRequest
 import com.claude.chat.data.model.OllamaEmbeddingResponse
 import com.claude.chat.data.model.OllamaGenerateRequest
 import com.claude.chat.data.model.OllamaGenerateResponse
+import com.claude.chat.data.model.OllamaOptions
 import io.github.aakira.napier.Napier
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -96,7 +97,8 @@ class OllamaClient(
     suspend fun generateCompletion(
         prompt: String,
         model: String = "llama2",
-        context: List<String>? = null
+        context: List<String>? = null,
+        options: OllamaOptions? = null
     ): Result<String> {
         return try {
             Napier.d("Generating completion with model $model")
@@ -105,7 +107,8 @@ class OllamaClient(
                 model = model,
                 prompt = prompt,
                 stream = false,
-                context = context
+                context = context,
+                options = options
             )
 
             val response: HttpResponse = httpClient.post("$baseUrl/api/generate") {

@@ -1,8 +1,10 @@
 package com.claude.chat.domain.service
 
 import com.claude.chat.data.model.ChunkEmbedding
+import com.claude.chat.data.model.OllamaOptions
 import com.claude.chat.data.model.RagDocument
 import com.claude.chat.data.model.RagIndex
+import com.claude.chat.data.model.RagSearchConfig
 import com.claude.chat.data.model.RagSearchResult
 import com.claude.chat.data.model.TextChunk
 import com.claude.chat.data.remote.OllamaClient
@@ -93,7 +95,99 @@ class RagService(
     }
 
     /**
-     * Search for relevant chunks based on a query
+     * Search for relevant chunks based on a query with configuration
+     */
+    suspend fun searchWithConfig(
+        query: String,
+        config: RagSearchConfig = RagSearchConfig()
+    ): Result<List<RagSearchResult>> = coroutineScope {
+        try {
+            val index = currentIndex
+            if (index == null || index.embeddings.isEmpty()) {
+                Napier.w("No index available for search")
+                return@coroutineScope Result.success(emptyList())
+            }
+
+            Napier.d("Searching for query: $query (reranking: ${config.enableReranking})")
+
+            // Generate embedding for query
+            val queryEmbeddingResult = ollamaClient.generateEmbedding(query, embeddingModel)
+            if (queryEmbeddingResult.isFailure) {
+                return@coroutineScope Result.failure(
+                    queryEmbeddingResult.exceptionOrNull() ?: Exception("Failed to generate query embedding")
+                )
+            }
+
+            val queryEmbedding = queryEmbeddingResult.getOrThrow()
+
+            // Stage 1: Calculate cosine similarities and filter by threshold
+            val initialResults = index.embeddings.map { chunkEmbedding ->
+                val similarity = cosineSimilarity(queryEmbedding, chunkEmbedding.embedding)
+                val document = index.documents.find { it.id == chunkEmbedding.documentId }
+
+                RagSearchResult(
+                    chunk = chunkEmbedding,
+                    similarity = similarity,
+                    documentTitle = document?.title ?: "Unknown"
+                )
+            }
+                .filter { it.similarity >= config.minSimilarity }
+                .sortedByDescending { it.similarity }
+                .take(if (config.enableReranking) config.rerankTopN else config.topK)
+
+            Napier.d("Stage 1: Found ${initialResults.size} candidates (minSimilarity: ${config.minSimilarity})")
+
+            // Stage 2: Reranking (if enabled)
+            val finalResults = if (config.enableReranking && initialResults.isNotEmpty()) {
+                Napier.d("Stage 2: Reranking top ${initialResults.size} results")
+
+                val rerankedResults = rerankResults(query, initialResults)
+                    .filter { result ->
+                        // Apply rerank score threshold
+                        val score = result.rerankScore ?: 0.0
+                        score >= config.minRerankScore
+                    }
+                    .let { filtered ->
+                        if (config.useHybridScoring) {
+                            // Hybrid scoring: combine similarity and rerank scores
+                            filtered.sortedByDescending { result ->
+                                val simScore = result.similarity * config.similarityWeight
+                                val rerankScore = (result.rerankScore ?: 0.0) * config.rerankWeight
+                                simScore + rerankScore
+                            }
+                        } else {
+                            // Pure reranking: sort by rerank score only
+                            filtered.sortedByDescending { it.rerankScore ?: 0.0 }
+                        }
+                    }
+                    .take(config.topK)
+
+                Napier.d("Stage 2 complete: ${rerankedResults.size} results after reranking and filtering")
+                rerankedResults
+            } else {
+                initialResults.take(config.topK)
+            }
+
+            // Log final results
+            finalResults.forEachIndexed { index, result ->
+                val simScore = (result.similarity * 1000).toInt() / 1000.0
+                val scoreInfo = result.rerankScore?.let { rerankScore ->
+                    val rerank = (rerankScore * 1000).toInt() / 1000.0
+                    "sim: $simScore, rerank: $rerank"
+                } ?: "sim: $simScore"
+                Napier.d("  ${index + 1}. ${result.documentTitle} - $scoreInfo")
+            }
+
+            Result.success(finalResults)
+
+        } catch (e: Exception) {
+            Napier.e("Error searching with config", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Search for relevant chunks based on a query (legacy method for backward compatibility)
      */
     suspend fun search(
         query: String,
@@ -215,6 +309,98 @@ class RagService(
     fun getCurrentIndex(): RagIndex? = currentIndex
 
     /**
+     * Rerank search results using LLM-based scoring
+     * This method uses Ollama to generate a relevance score for each result
+     */
+    private suspend fun rerankResults(
+        query: String,
+        results: List<RagSearchResult>
+    ): List<RagSearchResult> {
+        if (results.isEmpty()) {
+            return results
+        }
+
+        return try {
+            // For each result, ask the LLM to score its relevance to the query
+            results.map { result ->
+                val rerankScore = calculateRerankScore(query, result.chunk.content)
+                result.copy(rerankScore = rerankScore)
+            }
+        } catch (e: Exception) {
+            Napier.w("Reranking failed, returning original results: ${e.message}")
+            // If reranking fails, return original results without rerank scores
+            results
+        }
+    }
+
+    /**
+     * Calculate rerank score for a single chunk using LLM
+     * Returns a score between 0.0 and 1.0 indicating relevance
+     */
+    private suspend fun calculateRerankScore(query: String, content: String): Double {
+        try {
+            // Trim content to reasonable length while preserving context
+            val trimmedContent = if (content.length > 1500) {
+                content.take(1500) + "..."
+            } else {
+                content
+            }
+
+            // Create a more structured prompt for the LLM to evaluate relevance
+            val prompt = buildString {
+                appendLine("You are a relevance scoring system. Your task is to evaluate how relevant a text passage is to answering a specific query.")
+                appendLine()
+                appendLine("Query: \"$query\"")
+                appendLine()
+                appendLine("Text passage:")
+                appendLine(trimmedContent)
+                appendLine()
+                appendLine("Rate the relevance of this text to the query on a scale from 0.0 to 1.0:")
+                appendLine("- 0.0 = Completely irrelevant, no connection to the query")
+                appendLine("- 0.3 = Tangentially related, mentions similar topics but doesn't answer the query")
+                appendLine("- 0.5 = Somewhat relevant, provides partial information")
+                appendLine("- 0.7 = Relevant, provides useful information to answer the query")
+                appendLine("- 1.0 = Highly relevant, directly and comprehensively answers the query")
+                appendLine()
+                appendLine("Respond with ONLY a single decimal number between 0.0 and 1.0, nothing else.")
+                appendLine()
+                append("Score:")
+            }
+
+            // Use a more capable model with temperature=0 for consistent results
+            val response = ollamaClient.generateCompletion(
+                prompt = prompt,
+                model = "llama3.2:3b",
+                options = OllamaOptions(
+                    temperature = 0.0,
+                    numPredict = 10  // We only need a short number response
+                )
+            )
+
+            // Extract score from response
+            val responseText = response.getOrNull()?.trim() ?: ""
+            Napier.d("Rerank response for query '$query': '$responseText'")
+
+            // Try to extract a number from the response
+            val score = responseText
+                .split(Regex("\\s+"))  // Split by whitespace
+                .firstOrNull { it.toDoubleOrNull() != null }  // Find first valid number
+                ?.toDoubleOrNull()
+                ?.coerceIn(0.0, 1.0)
+                ?: run {
+                    Napier.w("Failed to parse rerank score from response: '$responseText', using 0.3")
+                    0.3  // Lower default to not promote uncertain results
+                }
+
+            Napier.d("Calculated rerank score: $score")
+            return score
+        } catch (e: Exception) {
+            Napier.w("Failed to calculate rerank score: ${e.message}")
+            return 0.3 // Lower default score on error
+        }
+    }
+
+    /**
      * Calculate cosine similarity between two vectors
      */
     private fun cosineSimilarity(vec1: List<Double>, vec2: List<Double>): Double {
@@ -248,7 +434,8 @@ class RagService(
             appendLine("Context from knowledge base:")
             appendLine()
             searchResults.forEachIndexed { index, result ->
-                appendLine("--- Source ${index + 1}: ${result.documentTitle} (relevance: ${"%.2f".format(result.similarity)}) ---")
+                val relevanceScore = (result.similarity * 100).toInt() / 100.0
+                appendLine("--- Source ${index + 1}: ${result.documentTitle} (relevance: $relevanceScore) ---")
                 appendLine(result.chunk.content)
                 appendLine()
             }

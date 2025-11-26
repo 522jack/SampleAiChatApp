@@ -462,6 +462,40 @@ fun SettingsScreen(
                 }
             }
 
+            // RAG Reranking Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "RAG Reranking",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            "Use LLM-based reranking for more accurate search results (slower but more precise)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = state.ragRerankingEnabled,
+                        onCheckedChange = { onIntent(SettingsIntent.ToggleRagReranking(it)) },
+                        enabled = state.ragModeEnabled
+                    )
+                }
+            }
+
             // RAG Documents Management Section
             Card(
                 modifier = Modifier.fillMaxWidth()
