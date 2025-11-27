@@ -423,7 +423,7 @@ class RagService(
     }
 
     /**
-     * Generate context from search results for RAG
+     * Generate context from search results for RAG with detailed source citations and clickable links
      */
     fun generateContext(searchResults: List<RagSearchResult>): String {
         if (searchResults.isEmpty()) {
@@ -433,12 +433,87 @@ class RagService(
         return buildString {
             appendLine("Context from knowledge base:")
             appendLine()
+
+            // Build a map of source URLs for easy reference
+            val sourceLinks = mutableMapOf<Int, String>()
+
             searchResults.forEachIndexed { index, result ->
-                val relevanceScore = (result.similarity * 100).toInt() / 100.0
-                appendLine("--- Source ${index + 1}: ${result.documentTitle} (relevance: $relevanceScore) ---")
+                val sourceNum = index + 1
+                val relevanceScore = (result.similarity * 1000).toInt() / 1000.0
+
+                // Get document metadata
+                val document = currentIndex?.documents?.find { it.id == result.chunk.documentId }
+                val url = document?.metadata?.get("url")
+                val filePath = document?.metadata?.get("path") ?: document?.metadata?.get("file")
+
+                // Store URL for later reference
+                if (!url.isNullOrBlank()) {
+                    sourceLinks[sourceNum] = url
+                } else if (!filePath.isNullOrBlank()) {
+                    sourceLinks[sourceNum] = "file://$filePath"
+                }
+
+                // Build source header with all available information
+                val sourceHeader = buildString {
+                    append("--- Source $sourceNum: ${result.documentTitle}")
+                    append(" [Chunk #${result.chunk.chunkIndex + 1}]")
+
+                    // Add relevance scores
+                    append(" (similarity: $relevanceScore")
+                    result.rerankScore?.let { rerank ->
+                        val rerankScore = (rerank * 1000).toInt() / 1000.0
+                        append(", rerank: $rerankScore")
+                    }
+                    append(")")
+
+                    append(" ---")
+                }
+
+                appendLine(sourceHeader)
+
+                // Add clickable link if URL is available
+                if (!url.isNullOrBlank()) {
+                    appendLine("🔗 Link: $url")
+                } else if (!filePath.isNullOrBlank()) {
+                    appendLine("📄 File: $filePath")
+                }
+
+                appendLine()
                 appendLine(result.chunk.content)
                 appendLine()
+
+                // Add citation reference with link
+                val citationRef = if (!url.isNullOrBlank()) {
+                    "[Source $sourceNum]($url)"
+                } else if (!filePath.isNullOrBlank()) {
+                    "[Source $sourceNum](file://$filePath)"
+                } else {
+                    "Source $sourceNum"
+                }
+                appendLine("Cite as: $citationRef - ${result.documentTitle}, Chunk ${result.chunk.chunkIndex + 1}")
+                appendLine()
             }
+
+            // Add instructions for citation with clickable links
+            appendLine("---")
+            appendLine("IMPORTANT: When answering, you MUST include clickable markdown links to sources.")
+            appendLine()
+            appendLine("Citation format:")
+            if (sourceLinks.isNotEmpty()) {
+                sourceLinks.forEach { (num, url) ->
+                    appendLine("- Source $num: [$num]($url)")
+                }
+                appendLine()
+                appendLine("Examples of how to cite in your response:")
+                appendLine("- According to [the documentation](${ sourceLinks[1] ?: "URL"}), the authentication system uses JWT tokens.")
+                appendLine("- The configuration process is described in [Source 2](${ sourceLinks[2] ?: sourceLinks[1] ?: "URL"}).")
+                appendLine("- Based on [this guide](${ sourceLinks[1] ?: "URL"}), the recommended approach is...")
+            } else {
+                appendLine("- Use the format: According to Source N, ...")
+                appendLine("- Or reference by document name: According to ${searchResults.firstOrNull()?.documentTitle ?: "the documentation"}, ...")
+            }
+            appendLine()
+            appendLine("ALWAYS include these clickable links when citing sources so users can navigate to the original documents.")
         }
     }
 }

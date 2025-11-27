@@ -1,14 +1,18 @@
 package com.claude.chat.presentation.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.MessageRole
@@ -172,71 +176,165 @@ fun MessageBubble(
             else -> MaterialTheme.colorScheme.onSecondaryContainer
         }
 
-        Row(
+        Column(
             modifier = modifier.fillMaxWidth(),
-            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
         ) {
-            Card(
-                modifier = Modifier.widthIn(max = 320.dp),
-                shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isUser) 16.dp else 4.dp,
-                    bottomEnd = if (isUser) 4.dp else 16.dp
-                ),
-                colors = CardDefaults.cardColors(
-                    containerColor = bubbleColor
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
             ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = message.content,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = textColor
+                Card(
+                    modifier = Modifier.widthIn(max = 320.dp),
+                    shape = RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (isUser) 16.dp else 4.dp,
+                        bottomEnd = if (isUser) 4.dp else 16.dp
+                    ),
+                    colors = CardDefaults.cardColors(
+                        containerColor = bubbleColor
                     )
-
-                    // Token usage display for assistant messages
-                    if (!isUser && (message.inputTokens != null || message.outputTokens != null)) {
-                        Text(
-                            text = buildString {
-                                append("Tokens: ")
-                                message.inputTokens?.let { append("in=$it ") }
-                                message.outputTokens?.let { append("out=$it") }
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = textColor.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = formatTimestamp(message.timestamp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = textColor.copy(alpha = 0.7f)
-                        )
-
-                        IconButton(
-                            onClick = onCopy,
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.ContentCopy,
-                                contentDescription = "Copy message",
-                                modifier = Modifier.size(16.dp),
-                                tint = textColor.copy(alpha = 0.7f)
+                        // Use MarkdownText for assistant messages to support clickable links
+                        if (!isUser) {
+                            MarkdownText(
+                                text = message.content,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textColor
                             )
+                        } else {
+                            Text(
+                                text = message.content,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textColor
+                            )
+                        }
+
+                        // Token usage display for assistant messages
+                        if (!isUser && (message.inputTokens != null || message.outputTokens != null)) {
+                            Text(
+                                text = buildString {
+                                    append("Tokens: ")
+                                    message.inputTokens?.let { append("in=$it ") }
+                                    message.outputTokens?.let { append("out=$it") }
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = textColor.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = formatTimestamp(message.timestamp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = textColor.copy(alpha = 0.7f)
+                            )
+
+                            IconButton(
+                                onClick = onCopy,
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = "Copy message",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = textColor.copy(alpha = 0.7f)
+                                )
+                            }
                         }
                     }
                 }
             }
+
+            // Extract and display links as chips below the message bubble
+            if (!isUser) {
+                val links = extractLinksFromText(message.content)
+                if (links.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinkChipsRow(
+                        links = links,
+                        modifier = Modifier.widthIn(max = 320.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Extracts all markdown links from text
+ * Returns list of pairs: (link text, link url)
+ */
+private fun extractLinksFromText(text: String): List<Pair<String, String>> {
+    val linkPattern = Regex("""\[([^\]]+)]\(([^)]+)\)""")
+    return linkPattern.findAll(text).map { matchResult ->
+        val linkText = matchResult.groupValues[1]
+        val linkUrl = matchResult.groupValues[2]
+        linkText to linkUrl
+    }.toList()
+}
+
+/**
+ * Displays a horizontal scrollable row of link chips
+ */
+@Composable
+private fun LinkChipsRow(
+    links: List<Pair<String, String>>,
+    modifier: Modifier = Modifier
+) {
+    val uriHandler = LocalUriHandler.current
+    val scrollState = rememberScrollState()
+
+    // Get theme values outside of lambda
+    val chipContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+    val chipLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+    val labelStyle = MaterialTheme.typography.labelMedium
+
+    Row(
+        modifier = modifier
+            .horizontalScroll(scrollState)
+            .padding(start = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        links.forEach { (linkText, linkUrl) ->
+            AssistChip(
+                onClick = {
+                    try {
+                        uriHandler.openUri(linkUrl)
+                    } catch (_: Exception) {
+                        println("Failed to open URL: $linkUrl")
+                    }
+                },
+                label = {
+                    Text(
+                        text = linkText,
+                        style = labelStyle,
+                        maxLines = 1
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Link,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = chipContainerColor,
+                    labelColor = chipLabelColor,
+                    leadingIconContentColor = chipLabelColor
+                )
+            )
         }
     }
 }

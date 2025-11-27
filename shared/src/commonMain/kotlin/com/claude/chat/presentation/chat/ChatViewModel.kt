@@ -276,16 +276,55 @@ class ChatViewModel(
 
         // Add RAG context if enabled
         if (_state.value.isRagMode) {
-            val ragContextResult = repository.searchRagIndex(userText, topK = 3)
+            val ragContextResult = repository.searchRagIndex(userText, topK = 5)
             if (ragContextResult.isSuccess) {
                 val ragContext = ragContextResult.getOrNull()
                 if (!ragContext.isNullOrBlank()) {
                     systemPrompt = """$systemPrompt
 
-Context from knowledge base:
 $ragContext
 
-Please use the above context to answer the user's question. If the context doesn't contain relevant information, answer based on your general knowledge."""
+CRITICAL INSTRUCTIONS FOR USING THE KNOWLEDGE BASE:
+
+1. **Clickable Citations** - You MUST include clickable markdown links:
+   - Format: [text](URL)
+   - URLs for each source are provided above
+   - Example: "According to [the documentation](https://example.com/docs), ..."
+
+2. **Quote Formatting** - When quoting directly from sources:
+   - Use block quotes for longer citations: > quoted text
+   - Use inline quotes for short phrases: "quoted text"
+   - ALWAYS add a source link after the quote
+   - Example:
+     > "Authentication is performed using OAuth 2.0 tokens with a 1-hour expiration."
+
+     — [Source 1](https://example.com/docs)
+
+3. **Text Formatting** - Use markdown for emphasis:
+   - **Bold** for important concepts: **OAuth 2.0**
+   - *Italic* for emphasis: *highly recommended*
+   - `Code` for technical terms: `access_token`
+
+4. **Citation Examples**:
+   ✅ CORRECT:
+   - "According to [the API documentation](https://example.com/api), the endpoint requires authentication."
+   - > "All requests must include an Authorization header."
+
+     — [Source 1](https://example.com/api)
+   - "The **authentication flow** uses `JWT` tokens, as described in [Source 2](https://example.com/auth)."
+
+   ❌ WRONG:
+   - "According to Source 1, ..." (missing clickable link)
+   - "The documentation says..." (missing link and quote formatting)
+
+5. **Best Practices**:
+   - Prefer information from sources with higher relevance scores
+   - Use block quotes (>) for direct citations from sources
+   - Add source links immediately after quotes
+   - If supplementing with general knowledge, clearly indicate this
+
+ALWAYS make citations clickable and properly formatted!
+"""
                     Napier.d("Added RAG context to system prompt")
                 }
             }
