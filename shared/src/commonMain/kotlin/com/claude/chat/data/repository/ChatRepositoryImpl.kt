@@ -8,6 +8,7 @@ import com.claude.chat.data.model.ClaudeMessageContent
 import com.claude.chat.data.model.ClaudeMessageRequest
 import com.claude.chat.data.model.ClaudeModel
 import com.claude.chat.data.model.McpTool
+import com.claude.chat.data.model.RagSearchConfig
 import com.claude.chat.data.model.StreamChunk
 import com.claude.chat.data.model.ToolUseInfo
 import com.claude.chat.data.remote.ClaudeApiClient
@@ -17,7 +18,9 @@ import com.claude.chat.domain.model.MessageRole
 import com.claude.chat.domain.model.ModelComparisonResponse
 import com.claude.chat.domain.model.ModelResponse
 import com.claude.chat.domain.service.MessageCompressionService
+import com.claude.chat.domain.service.ModelComparisonOrchestrator
 import com.claude.chat.domain.service.RagService
+import com.claude.chat.domain.service.ToolExecutionService
 import com.claude.chat.platform.createFileStorage
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.async
@@ -40,7 +43,9 @@ class ChatRepositoryImpl(
     private val apiClient: ClaudeApiClient,
     private val settingsStorage: SettingsStorage,
     private val mcpManager: McpManager,
-    private val ragService: RagService
+    private val ragService: RagService,
+    private val toolExecutionService: ToolExecutionService,
+    private val modelComparisonOrchestrator: ModelComparisonOrchestrator
 ) : ChatRepository {
 
     private val compressionService = MessageCompressionService(apiClient)
@@ -71,30 +76,14 @@ class ChatRepositoryImpl(
 
     companion object {
         private const val MAX_TOKENS = 8192
-        private const val HAIKU_3_MAX_TOKENS = 4096
         private const val DEFAULT_SYSTEM_PROMPT = "You are Claude, a helpful AI assistant."
         private const val RAG_INDEX_FILENAME = "rag_index.json"
-
-        // Models for comparison: Haiku 3 (fast), Sonnet 3.7 (balanced), Sonnet 4.5 (most capable)
-        private val COMPARISON_MODELS = listOf(
-            ClaudeModel.HAIKU_3,        // claude-3-haiku-20240307
-            ClaudeModel.SONNET_3_7,     // claude-3-7-sonnet-20250219
-            ClaudeModel.SONNET_4_5      // claude-sonnet-4-5-20250929
-        )
 
         private fun getCurrentDate(): String {
             return Clock.System.now()
                 .toLocalDateTime(TimeZone.currentSystemDefault())
                 .date
                 .toString()
-        }
-
-        private fun getMaxTokensForModel(modelId: String): Int {
-            return if (modelId == ClaudeModel.HAIKU_3.modelId) {
-                HAIKU_3_MAX_TOKENS
-            } else {
-                MAX_TOKENS
-            }
         }
     }
 
@@ -150,51 +139,6 @@ class ChatRepositoryImpl(
                 }
 
                 Always use exactly "$currentDate" as the date value. Do not include any text outside of this JSON structure. The entire response must be valid JSON."""
-    }
-
-    /**
-     * Sends a single model comparison request and returns the model response
-     */
-    private suspend fun sendSingleModelRequest(
-        model: ClaudeModel,
-        claudeMessages: List<ClaudeMessage>,
-        systemPrompt: String,
-        temperature: Double,
-        apiKey: String
-    ): ModelResponse {
-        val maxTokens = getMaxTokensForModel(model.modelId)
-
-        val request = ClaudeMessageRequest(
-            model = model.modelId,
-            messages = claudeMessages,
-            maxTokens = maxTokens,
-            stream = false,
-            system = systemPrompt,
-            temperature = temperature
-        )
-
-        val startTime = Clock.System.now()
-        val apiResult = apiClient.sendMessageNonStreaming(request, apiKey)
-        val responseResult = apiResult.getOrThrow()
-        val endTime = Clock.System.now()
-        val responseTimeMs = (endTime - startTime).inWholeMilliseconds
-
-        val content = responseResult.content.firstOrNull()?.text ?: ""
-        val inputTokens = responseResult.usage.inputTokens ?: 0
-        val outputTokens = responseResult.usage.outputTokens ?: 0
-        val cost = ClaudePricing.calculateCost(model.modelId, inputTokens, outputTokens)
-
-        Napier.d("${model.displayName} response: ${responseTimeMs}ms, tokens: $inputTokens/$outputTokens, cost: \$${cost}")
-
-        return ModelResponse(
-            modelId = model.modelId,
-            modelName = model.displayName,
-            content = content,
-            responseTimeMs = responseTimeMs,
-            inputTokens = inputTokens,
-            outputTokens = outputTokens,
-            totalCost = cost
-        )
     }
 
     override suspend fun sendMessage(
@@ -325,203 +269,47 @@ class ChatRepositoryImpl(
         val jsonModeEnabled = getJsonMode()
         val mcpEnabled = getMcpEnabled()
 
-        val finalSystemPrompt = prepareSystemPrompt(systemPrompt, jsonModeEnabled)
-        val selectedModel = getSelectedModel()
-        val temperature = getTemperature()
-
-        // Add MCP tools if enabled
-        val tools = if (mcpEnabled && mcpManager.isInitialized()) {
-            val claudeTools = mcpManager.getClaudeTools()
-            Napier.d("Tool loop: MCP enabled with ${claudeTools.size} tools")
-            claudeTools
-        } else {
-            Napier.d("Tool loop: MCP not enabled")
-            null
-        }
-
-        if (tools.isNullOrEmpty()) {
+        // Check if tools are available
+        if (!toolExecutionService.hasTools(mcpEnabled)) {
             Napier.w("Tool loop called but no tools available, falling back to normal flow")
-            // No tools, just use normal flow
             sendMessageWithUsage(messages, systemPrompt).collect { emit(it) }
             return@flow
         }
 
-        // Start tool use loop
-        var conversationMessages = mapToClaudeMessages(messages).toMutableList()
-        var continueLoop = true
-        var loopCount = 0
-        val maxLoops = 10 // Prevent infinite loops
+        // Prepare parameters
+        val finalSystemPrompt = prepareSystemPrompt(systemPrompt, jsonModeEnabled)
+        val selectedModel = getSelectedModel()
+        val temperature = getTemperature()
+        val claudeMessages = mapToClaudeMessages(messages)
 
-        while (continueLoop && loopCount < maxLoops) {
-            loopCount++
-            Napier.d("Tool loop iteration $loopCount")
-
-            val request = ClaudeMessageRequest(
-                model = selectedModel,
-                messages = conversationMessages,
-                maxTokens = MAX_TOKENS,
-                stream = false,
-                system = finalSystemPrompt,
-                temperature = temperature,
-                tools = tools
-            )
-
-            // Send request to Claude
-            val result = apiClient.sendMessageNonStreaming(request, apiKey)
-            if (result.isFailure) {
-                throw result.exceptionOrNull() ?: Exception("Unknown error")
-            }
-
-            val response = result.getOrThrow()
-
-            // Emit usage information
-            emit(StreamChunk(usage = response.usage))
-
-            // Process response content
-            val assistantBlocks = mutableListOf<ClaudeContentBlock>()
-            val toolUseCalls = mutableListOf<ToolUseInfo>()
-
-            response.content.forEach { content ->
-                when (content.type) {
-                    "text" -> {
-                        content.text?.let {
-                            emit(StreamChunk(text = it))
-                            assistantBlocks.add(
-                                ClaudeContentBlock(
-                                    type = "text",
-                                    text = it
-                                )
-                            )
-                        }
-                    }
-                    "tool_use" -> {
-                        if (content.id != null && content.name != null && content.input != null) {
-                            Napier.d("Claude requested tool: ${content.name}")
-                            val toolUse = ToolUseInfo(
-                                id = content.id,
-                                name = content.name,
-                                input = content.input
-                            )
-                            toolUseCalls.add(toolUse)
-                            assistantBlocks.add(
-                                ClaudeContentBlock(
-                                    type = "tool_use",
-                                    id = content.id,
-                                    name = content.name,
-                                    input = content.input
-                                )
-                            )
-                            emit(StreamChunk(toolUse = toolUse))
-                        }
-                    }
-                }
-            }
-
-            // Add assistant's response to conversation
-            if (assistantBlocks.isNotEmpty()) {
-                conversationMessages.add(createMessageWithBlocks("assistant", assistantBlocks))
-            }
-
-            // Execute tool calls if any
-            if (toolUseCalls.isNotEmpty()) {
-                val toolResultBlocks = mutableListOf<ClaudeContentBlock>()
-
-                for (toolUse in toolUseCalls) {
-                    Napier.d("Executing tool: ${toolUse.name}")
-
-                    // Convert JsonObject to Map<String, String>
-                    val arguments = toolUse.input.entries.associate { (key, value) ->
-                        key to when (value) {
-                            is kotlinx.serialization.json.JsonPrimitive -> value.content
-                            else -> value.toString()
-                        }
-                    }
-
-                    val toolResult = onToolCall(toolUse.name, arguments)
-
-                    val resultBlock = if (toolResult.isSuccess) {
-                        val resultText = toolResult.getOrNull() ?: ""
-                        Napier.d("Tool ${toolUse.name} succeeded, result length: ${resultText.length}")
-                        ClaudeContentBlock(
-                            type = "tool_result",
-                            toolUseId = toolUse.id,
-                            content = resultText
-                        )
-                    } else {
-                        val errorMsg = toolResult.exceptionOrNull()?.message ?: "Unknown error"
-                        Napier.e("Tool ${toolUse.name} failed: $errorMsg")
-                        ClaudeContentBlock(
-                            type = "tool_result",
-                            toolUseId = toolUse.id,
-                            content = "Error: $errorMsg",
-                            isError = true
-                        )
-                    }
-
-                    toolResultBlocks.add(resultBlock)
-                }
-
-                // Add tool results to conversation as a user message
-                conversationMessages.add(createMessageWithBlocks("user", toolResultBlocks))
-
-                // Continue loop to send results back to Claude
-                continueLoop = true
-            } else {
-                // No tool calls, conversation is complete
-                continueLoop = false
-            }
-        }
-
-        if (loopCount >= maxLoops) {
-            Napier.w("Tool loop reached max iterations ($maxLoops)")
-        }
-
-        // Emit completion
-        emit(StreamChunk(isComplete = true))
-        Napier.d("Tool loop completed after $loopCount iterations")
+        // Delegate to ToolExecutionService
+        toolExecutionService.executeToolLoop(
+            initialMessages = claudeMessages,
+            systemPrompt = finalSystemPrompt,
+            selectedModel = selectedModel,
+            temperature = temperature,
+            maxTokens = MAX_TOKENS,
+            apiKey = apiKey,
+            mcpEnabled = mcpEnabled,
+            onToolCall = onToolCall
+        ).collect { emit(it) }
     }
 
     override suspend fun sendMessageComparison(
         messages: List<Message>,
         systemPrompt: String?
-    ): Result<ModelComparisonResponse> = coroutineScope {
-        try {
-            val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
-            val finalSystemPrompt = systemPrompt ?: DEFAULT_SYSTEM_PROMPT
-            val temperature = getTemperature()
+    ): Result<ModelComparisonResponse> {
+        val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
+        val finalSystemPrompt = systemPrompt ?: DEFAULT_SYSTEM_PROMPT
+        val temperature = getTemperature()
 
-            // Prepare messages for API (exclude comparison responses, but include summaries)
-            val claudeMessages = messages
-                .filter { it.comparisonResponse == null }
-                .let { mapToClaudeMessages(it) }
-
-            // Get user question (last user message)
-            val userQuestion = messages.lastOrNull { it.role == MessageRole.USER }?.content
-                ?: "Question"
-
-            Napier.d("Sending comparison requests to ${COMPARISON_MODELS.size} models")
-
-            // Send requests to all models in parallel
-            val modelResponses = COMPARISON_MODELS.map { model ->
-                async {
-                    sendSingleModelRequest(model, claudeMessages, finalSystemPrompt, temperature, apiKey)
-                }
-            }.awaitAll()
-
-            val comparisonResponse = ModelComparisonResponse(
-                id = Uuid.random().toString(),
-                userQuestion = userQuestion,
-                responses = modelResponses,
-                timestamp = Clock.System.now()
-            )
-
-            Napier.d("Model comparison completed successfully")
-            Result.success(comparisonResponse)
-
-        } catch (e: Exception) {
-            Napier.e("Error in model comparison", e)
-            Result.failure(e)
-        }
+        // Delegate to ModelComparisonOrchestrator
+        return modelComparisonOrchestrator.compareModels(
+            messages = messages,
+            systemPrompt = finalSystemPrompt,
+            temperature = temperature,
+            apiKey = apiKey
+        )
     }
 
     override suspend fun getMessages(): List<Message> {
@@ -650,24 +438,60 @@ class ChatRepositoryImpl(
 
             val searchResult = if (rerankingEnabled) {
                 // Use advanced search with reranking
-                val config = com.claude.chat.data.model.RagSearchConfig(
+                val config = RagSearchConfig(
                     topK = topK,
-                    minSimilarity = 0.1,          // Low threshold for initial search (reranking will filter)
+                    minSimilarity = 0.15,         // Low threshold for initial search - reranking will filter
                     enableReranking = true,
                     rerankTopN = topK * 4,        // Rerank 4x more candidates for better selection
-                    minRerankScore = 0.3,         // Lower filter - model may give conservative scores
+                    minRerankScore = 0.85,        // Very high threshold to avoid false positives from small LLM
                     useHybridScoring = true,      // Combine similarity + rerank scores
-                    similarityWeight = 0.5,       // Equal weight between similarity and rerank
-                    rerankWeight = 0.5
+                    similarityWeight = 0.4,       // Slightly favor rerank score
+                    rerankWeight = 0.6
                 )
                 ragService.searchWithConfig(query, config)
             } else {
                 // Use simple search without reranking
-                ragService.search(query, topK, minSimilarity = 0.3)
+                ragService.search(query, topK, minSimilarity = 0.25)  // Moderate threshold without reranking
             }
 
             if (searchResult.isSuccess) {
                 val results = searchResult.getOrThrow()
+
+                // Log search details for debugging
+                Napier.d("RAG search query: \"$query\", reranking: $rerankingEnabled")
+
+                // Check if we have any meaningful results
+                if (results.isEmpty()) {
+                    Napier.d("No relevant documents found (filtered out by thresholds). Model will answer from general knowledge.")
+                    // Return empty string - model will answer without RAG context
+                    return Result.success("")
+                }
+
+                // Log relevance scores for debugging
+                val maxScore = results.maxOfOrNull { result ->
+                    result.rerankScore ?: result.similarity
+                } ?: 0.0
+                val avgScore = results.map { it.rerankScore ?: it.similarity }.average()
+
+                // Detailed logging for each result
+                Napier.d("RAG search results for query: \"$query\"")
+                results.forEachIndexed { index, result ->
+                    val simScore = (result.similarity * 1000).toInt() / 1000.0
+                    val rerankScore = result.rerankScore?.let { (it * 1000).toInt() / 1000.0 }
+                    Napier.d("  ${index + 1}. ${result.documentTitle} - sim: $simScore, rerank: $rerankScore")
+                }
+                Napier.d("Score summary - max: ${(maxScore * 1000).toInt() / 1000.0}, avg: ${(avgScore * 1000).toInt() / 1000.0}")
+
+                // Additional quality check: if max score is too low, documents are not relevant enough
+                // Higher thresholds to ensure only truly relevant documents are used
+                // Without reranking: cosine similarity alone is unreliable, need high threshold (0.75+)
+                // With reranking: Small LLM (3B params) can give false positives, need high threshold (0.85+)
+                val minAcceptableScore = if (rerankingEnabled) 0.85 else 0.75
+                if (maxScore < minAcceptableScore) {
+                    Napier.d("Documents found but max score ($maxScore) below threshold ($minAcceptableScore). Model will answer from general knowledge.")
+                    return Result.success("")
+                }
+
                 val context = ragService.generateContext(results)
                 Result.success(context)
             } else {

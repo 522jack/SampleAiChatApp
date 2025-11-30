@@ -200,6 +200,24 @@ fun MessageBubble(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Show RAG indicator for assistant messages generated from knowledge base
+                        if (!isUser && message.isFromRag) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "📚",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Text(
+                                    text = "Knowledge Base",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = textColor.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+
                         // Use MarkdownText for assistant messages to support clickable links
                         if (!isUser) {
                             MarkdownText(

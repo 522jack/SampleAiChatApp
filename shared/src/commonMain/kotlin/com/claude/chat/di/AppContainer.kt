@@ -9,8 +9,16 @@ import com.claude.chat.data.remote.OllamaClient
 import com.claude.chat.data.remote.createHttpClient
 import com.claude.chat.data.repository.ChatRepository
 import com.claude.chat.data.repository.ChatRepositoryImpl
+import com.claude.chat.domain.manager.ApiConfigurationManager
+import com.claude.chat.domain.manager.ChatHistoryManager
+import com.claude.chat.domain.manager.ModelConfigurationManager
+import com.claude.chat.domain.manager.RagConfigurationManager
+import com.claude.chat.domain.manager.TechSpecManager
+import com.claude.chat.domain.service.MessageSendingOrchestrator
+import com.claude.chat.domain.service.ModelComparisonOrchestrator
 import com.claude.chat.domain.service.RagService
 import com.claude.chat.domain.service.TextChunker
+import com.claude.chat.domain.service.ToolExecutionService
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.launch
 
@@ -48,8 +56,33 @@ class AppContainer {
         RagService(ollamaClient, textChunker)
     }
 
+    // ============================================================================
+    // Business Logic Services
+    // ============================================================================
+
+    /**
+     * Service for executing tool loops with Claude API
+     */
+    private val toolExecutionService by lazy {
+        ToolExecutionService(apiClient, mcpManager)
+    }
+
+    /**
+     * Orchestrator for comparing responses from multiple Claude models
+     */
+    private val modelComparisonOrchestrator by lazy {
+        ModelComparisonOrchestrator(apiClient)
+    }
+
     val chatRepository: ChatRepository by lazy {
-        ChatRepositoryImpl(apiClient, settingsStorage, mcpManager, ragService).also {
+        ChatRepositoryImpl(
+            apiClient = apiClient,
+            settingsStorage = settingsStorage,
+            mcpManager = mcpManager,
+            ragService = ragService,
+            toolExecutionService = toolExecutionService,
+            modelComparisonOrchestrator = modelComparisonOrchestrator
+        ).also {
             // Auto-load RAG index on startup
             kotlinx.coroutines.MainScope().launch {
                 try {
@@ -59,6 +92,52 @@ class AppContainer {
                 }
             }
         }
+    }
+
+    // ============================================================================
+    // Configuration Managers
+    // ============================================================================
+
+    /**
+     * Manager for API configuration (API key, system prompt, temperature)
+     */
+    val apiConfigurationManager by lazy {
+        ApiConfigurationManager(chatRepository)
+    }
+
+    /**
+     * Manager for model configuration (JSON mode, Tech Spec, comparison mode, MCP)
+     */
+    val modelConfigurationManager by lazy {
+        ModelConfigurationManager(chatRepository)
+    }
+
+    /**
+     * Manager for RAG configuration (RAG mode, reranking, document indexing)
+     */
+    val ragConfigurationManager by lazy {
+        RagConfigurationManager(chatRepository, ollamaClient)
+    }
+
+    /**
+     * Manager for Tech Spec mode state machine
+     */
+    val techSpecManager by lazy {
+        TechSpecManager()
+    }
+
+    /**
+     * Manager for chat message history operations
+     */
+    val chatHistoryManager by lazy {
+        ChatHistoryManager(chatRepository)
+    }
+
+    /**
+     * Orchestrator for message sending with RAG and tool support
+     */
+    val messageSendingOrchestrator by lazy {
+        MessageSendingOrchestrator(chatRepository, techSpecManager)
     }
 
     /**

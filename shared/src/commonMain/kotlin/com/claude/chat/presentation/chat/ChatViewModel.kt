@@ -4,9 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.claude.chat.data.model.McpTool
 import com.claude.chat.data.repository.ChatRepository
+import com.claude.chat.domain.manager.ChatHistoryManager
+import com.claude.chat.domain.manager.TechSpecManager
 import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.MessageRole
-import com.claude.chat.domain.prompts.TechSpecPrompts
+import com.claude.chat.domain.service.MessageSendingOrchestrator
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -16,12 +18,15 @@ import kotlin.uuid.Uuid
 
 /**
  * ViewModel for chat screen following MVI pattern.
- * Handles chat interactions, message streaming, model selection, and special modes
- * (Tech Spec mode, Model Comparison mode).
+ * Delegates business logic to specialized managers and orchestrators.
+ * Handles only UI state management and coordination.
  */
 @OptIn(ExperimentalUuidApi::class)
 class ChatViewModel(
-    private val repository: ChatRepository
+    private val repository: ChatRepository,
+    private val chatHistoryManager: ChatHistoryManager,
+    private val messageSendingOrchestrator: MessageSendingOrchestrator,
+    private val techSpecManager: TechSpecManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ChatUiState())
@@ -158,11 +163,11 @@ class ChatViewModel(
 
     private fun loadMessages() {
         viewModelScope.launch {
-            try {
-                val messages = repository.getMessages()
-                _state.update { it.copy(messages = messages) }
-            } catch (e: Exception) {
-                Napier.e("Error loading messages", e)
+            val result = chatHistoryManager.loadMessages()
+            if (result.isSuccess) {
+                _state.update { it.copy(messages = result.getOrThrow()) }
+            } else {
+                Napier.e("Error loading messages", result.exceptionOrNull())
                 _state.update { it.copy(error = "Failed to load messages") }
             }
         }
@@ -196,28 +201,22 @@ class ChatViewModel(
     private fun executeMcpTool(toolName: String, arguments: Map<String, String>) {
         viewModelScope.launch {
             try {
-                // Add user message showing tool call
-                val userMessage = Message(
-                    id = Uuid.random().toString(),
-                    content = "🔧 Executing tool: $toolName\nArguments: ${arguments.entries.joinToString(", ") { "${it.key}=${it.value}" }}",
-                    role = MessageRole.USER,
-                    timestamp = Clock.System.now()
+                // Create user message showing tool call
+                val userMessage = chatHistoryManager.createUserMessage(
+                    "🔧 Executing tool: $toolName\nArguments: ${arguments.entries.joinToString(", ") { "${it.key}=${it.value}" }}"
                 )
 
-                val updatedMessages = _state.value.messages + userMessage
+                val updatedMessages = chatHistoryManager.addUserMessage(userMessage, _state.value.messages)
                 _state.update { it.copy(messages = updatedMessages, isLoading = true) }
-                repository.saveMessages(updatedMessages)
+                chatHistoryManager.saveMessages(updatedMessages)
 
                 // Call the tool through repository
                 val result = repository.callMcpTool(toolName, arguments)
 
                 // Create assistant message with result
                 val assistantMessage = if (result.isSuccess) {
-                    Message(
-                        id = Uuid.random().toString(),
-                        content = "✅ Tool result:\n${result.getOrNull()}",
-                        role = MessageRole.ASSISTANT,
-                        timestamp = Clock.System.now()
+                    chatHistoryManager.createAssistantMessage(
+                        content = "✅ Tool result:\n${result.getOrNull()}"
                     )
                 } else {
                     Message(
@@ -231,7 +230,7 @@ class ChatViewModel(
 
                 val finalMessages = _state.value.messages + assistantMessage
                 _state.update { it.copy(messages = finalMessages, isLoading = false) }
-                repository.saveMessages(finalMessages)
+                chatHistoryManager.saveMessages(finalMessages)
 
                 Napier.d("MCP tool executed: $toolName")
             } catch (e: Exception) {
@@ -255,9 +254,16 @@ class ChatViewModel(
 
         viewModelScope.launch {
             try {
-                val userMessage = createUserMessage(text)
-                val updatedMessages = addUserMessageToState(userMessage)
-                repository.saveMessages(updatedMessages)
+                val userMessage = chatHistoryManager.createUserMessage(text)
+                val updatedMessages = chatHistoryManager.addUserMessage(userMessage, _state.value.messages)
+                _state.update {
+                    it.copy(
+                        messages = updatedMessages,
+                        isLoading = true,
+                        error = null
+                    )
+                }
+                chatHistoryManager.saveMessages(updatedMessages)
 
                 // Route to appropriate sending mode
                 if (_state.value.isModelComparisonMode) {
@@ -272,174 +278,103 @@ class ChatViewModel(
     }
 
     private suspend fun sendMessageStreaming(userText: String, messages: List<Message>) {
-        var systemPrompt = resolveSystemPrompt(userText)
-
-        // Add RAG context if enabled
-        if (_state.value.isRagMode) {
-            val ragContextResult = repository.searchRagIndex(userText, topK = 5)
-            if (ragContextResult.isSuccess) {
-                val ragContext = ragContextResult.getOrNull()
-                if (!ragContext.isNullOrBlank()) {
-                    systemPrompt = """$systemPrompt
-
-$ragContext
-
-CRITICAL INSTRUCTIONS FOR USING THE KNOWLEDGE BASE:
-
-1. **Clickable Citations** - You MUST include clickable markdown links:
-   - Format: [text](URL)
-   - URLs for each source are provided above
-   - Example: "According to [the documentation](https://example.com/docs), ..."
-
-2. **Quote Formatting** - When quoting directly from sources:
-   - Use block quotes for longer citations: > quoted text
-   - Use inline quotes for short phrases: "quoted text"
-   - ALWAYS add a source link after the quote
-   - Example:
-     > "Authentication is performed using OAuth 2.0 tokens with a 1-hour expiration."
-
-     — [Source 1](https://example.com/docs)
-
-3. **Text Formatting** - Use markdown for emphasis:
-   - **Bold** for important concepts: **OAuth 2.0**
-   - *Italic* for emphasis: *highly recommended*
-   - `Code` for technical terms: `access_token`
-
-4. **Citation Examples**:
-   ✅ CORRECT:
-   - "According to [the API documentation](https://example.com/api), the endpoint requires authentication."
-   - > "All requests must include an Authorization header."
-
-     — [Source 1](https://example.com/api)
-   - "The **authentication flow** uses `JWT` tokens, as described in [Source 2](https://example.com/auth)."
-
-   ❌ WRONG:
-   - "According to Source 1, ..." (missing clickable link)
-   - "The documentation says..." (missing link and quote formatting)
-
-5. **Best Practices**:
-   - Prefer information from sources with higher relevance scores
-   - Use block quotes (>) for direct citations from sources
-   - Add source links immediately after quotes
-   - If supplementing with general knowledge, clearly indicate this
-
-ALWAYS make citations clickable and properly formatted!
-"""
-                    Napier.d("Added RAG context to system prompt")
-                }
-            }
-        }
-
         val assistantMessageId = Uuid.random().toString()
         var assistantContent = ""
         var inputTokens: Int? = null
         var outputTokens = 0
+        var wasRagUsed = false
 
-        // Use the new tool loop method that handles multi-turn tool use
-        repository.sendMessageWithToolLoop(
-            messages = messages,
-            systemPrompt = systemPrompt,
-            onToolCall = { toolName, arguments ->
-                // This callback is called for each tool execution
-                Napier.d("Tool loop executing: $toolName")
-                assistantContent += "\n\n🔧 Using tool: $toolName"
-                updateAssistantMessage(assistantMessageId, assistantContent, inputTokens, outputTokens)
+        try {
+            // Delegate message sending to orchestrator
+            messageSendingOrchestrator.sendMessage(
+                MessageSendingOrchestrator.SendConfig(
+                    userText = userText,
+                    messages = messages,
+                    isRagMode = _state.value.isRagMode,
+                    isTechSpecMode = _state.value.isTechSpecMode,
+                    techSpecState = _state.value.techSpecState,
+                    onToolExecution = { toolName, result ->
+                        assistantContent += "\n\n$result"
+                        updateAssistantMessageInState(assistantMessageId, assistantContent, inputTokens, outputTokens, wasRagUsed)
+                    },
+                    onRagUsageDetected = { ragUsed ->
+                        wasRagUsed = ragUsed
+                        Napier.d("RAG usage detected: $ragUsed")
+                    }
+                )
+            ).catch { error ->
+                handleStreamingError(error)
+            }.collect { chunk ->
+                // Accumulate text content
+                chunk.text?.let { assistantContent += it }
 
-                val result = repository.callMcpTool(toolName, arguments)
-
-                if (result.isSuccess) {
-                    val resultText = result.getOrNull() ?: ""
-                    assistantContent += "\n\n✅ Tool result ($toolName):\n$resultText"
-                } else {
-                    assistantContent += "\n\n❌ Tool error ($toolName): ${result.exceptionOrNull()?.message}"
+                // Update token usage
+                chunk.usage?.let { usage ->
+                    usage.inputTokens?.let { inputTokens = it }
+                    usage.outputTokens?.let { outputTokens = it }
+                    Napier.d("Token usage: input=$inputTokens, output=$outputTokens")
                 }
 
-                updateAssistantMessage(assistantMessageId, assistantContent, inputTokens, outputTokens)
-                result
-            }
-        ).catch { error ->
-            handleStreamingError(error)
-        }.collect { chunk ->
-            // Accumulate text content
-            chunk.text?.let { assistantContent += it }
-
-            // Update token usage
-            chunk.usage?.let { usage ->
-                usage.inputTokens?.let { inputTokens = it }
-                usage.outputTokens?.let { outputTokens = it }
-                Napier.d("Token usage: input=$inputTokens, output=$outputTokens")
+                // Update UI if we have new content or usage data
+                if (chunk.text != null || chunk.usage != null) {
+                    updateAssistantMessageInState(assistantMessageId, assistantContent, inputTokens, outputTokens, wasRagUsed)
+                }
             }
 
-            // Update UI if we have new content or usage data
-            if (chunk.text != null || chunk.usage != null) {
-                updateAssistantMessage(
-                    assistantMessageId,
-                    assistantContent,
-                    inputTokens,
-                    outputTokens
-                )
+            // Finalize response
+            if (_state.value.isTechSpecMode) {
+                val newState = techSpecManager.updateState(userText, _state.value.techSpecState)
+                _state.update { it.copy(techSpecState = newState) }
             }
+
+            _state.update { it.copy(isLoading = false) }
+            chatHistoryManager.saveMessages(_state.value.messages)
+
+            // Check if compression is needed after sending message
+            attemptCompression()
+        } catch (e: Exception) {
+            handleStreamingError(e)
         }
-
-        // Finalize response
-        if (_state.value.isTechSpecMode) {
-            updateTechSpecState(userText)
-        }
-
-        _state.update { it.copy(isLoading = false) }
-        repository.saveMessages(_state.value.messages)
-
-        // Check if compression is needed after sending message
-        attemptCompression()
     }
 
     private suspend fun sendMessageComparison(messages: List<Message>) {
         try {
-            val systemPrompt = repository.getSystemPrompt()
-            val result = repository.sendMessageComparison(messages, systemPrompt)
+            messageSendingOrchestrator.sendMessageComparison(messages).collect { result ->
+                when (result) {
+                    is MessageSendingOrchestrator.ComparisonResult.Success -> {
+                        val assistantMessage = Message(
+                            id = Uuid.random().toString(),
+                            content = "Model Comparison Response",
+                            role = MessageRole.ASSISTANT,
+                            timestamp = Clock.System.now(),
+                            comparisonResponse = result.response
+                        )
 
-            if (result.isFailure) {
-                val error = result.exceptionOrNull()
-                Napier.e("Error in comparison mode", error)
+                        val updatedMessages = _state.value.messages + assistantMessage
+                        _state.update {
+                            it.copy(
+                                messages = updatedMessages,
+                                isLoading = false
+                            )
+                        }
 
-                val errorMessage = createErrorMessage(
-                    error?.message ?: "Failed to get comparison responses"
-                )
+                        chatHistoryManager.saveMessages(updatedMessages)
+                    }
 
-                val messagesWithError = _state.value.messages + errorMessage
-                _state.update {
-                    it.copy(
-                        messages = messagesWithError,
-                        isLoading = false,
-                        error = error?.message
-                    )
+                    is MessageSendingOrchestrator.ComparisonResult.Error -> {
+                        val errorMessage = chatHistoryManager.createErrorMessage(result.message)
+                        val messagesWithError = _state.value.messages + errorMessage
+                        _state.update {
+                            it.copy(
+                                messages = messagesWithError,
+                                isLoading = false,
+                                error = result.message
+                            )
+                        }
+                        chatHistoryManager.saveMessages(messagesWithError)
+                    }
                 }
-
-                repository.saveMessages(messagesWithError)
-                return
             }
-
-            val comparisonResponse = result.getOrThrow()
-
-            // Create assistant message with comparison response
-            val assistantMessage = Message(
-                id = Uuid.random().toString(),
-                content = "Model Comparison Response",
-                role = MessageRole.ASSISTANT,
-                timestamp = Clock.System.now(),
-                comparisonResponse = comparisonResponse
-            )
-
-            val updatedMessages = _state.value.messages + assistantMessage
-            _state.update {
-                it.copy(
-                    messages = updatedMessages,
-                    isLoading = false
-                )
-            }
-
-            repository.saveMessages(updatedMessages)
-
         } catch (e: Exception) {
             Napier.e("Error in comparison mode", e)
             _state.update {
@@ -452,85 +387,25 @@ ALWAYS make citations clickable and properly formatted!
     }
 
     // ============================================================================
-    // Message Creation Helpers
-    // ============================================================================
-
-    private fun createUserMessage(text: String): Message {
-        return Message(
-            id = Uuid.random().toString(),
-            content = text,
-            role = MessageRole.USER,
-            timestamp = Clock.System.now()
-        )
-    }
-
-    private fun createErrorMessage(errorText: String): Message {
-        return Message(
-            id = Uuid.random().toString(),
-            content = "Error: $errorText",
-            role = MessageRole.ASSISTANT,
-            timestamp = Clock.System.now(),
-            isError = true
-        )
-    }
-
-    private fun createAssistantMessage(
-        id: String,
-        content: String,
-        inputTokens: Int? = null,
-        outputTokens: Int = 0
-    ): Message {
-        return Message(
-            id = id,
-            content = content,
-            role = MessageRole.ASSISTANT,
-            timestamp = Clock.System.now(),
-            inputTokens = inputTokens,
-            outputTokens = outputTokens
-        )
-    }
-
-    // ============================================================================
     // State Update Helpers
     // ============================================================================
 
-    private fun addUserMessageToState(userMessage: Message): List<Message> {
-        val updatedMessages = _state.value.messages + userMessage
-        _state.update {
-            it.copy(
-                messages = updatedMessages,
-                isLoading = true,
-                error = null
-            )
-        }
-        return updatedMessages
-    }
-
-    private fun updateAssistantMessage(
+    private fun updateAssistantMessageInState(
         messageId: String,
         content: String,
         inputTokens: Int?,
-        outputTokens: Int
+        outputTokens: Int,
+        isFromRag: Boolean = false
     ) {
-        val assistantMessage = createAssistantMessage(
-            id = messageId,
+        val updatedMessages = chatHistoryManager.updateAssistantMessage(
+            messageId = messageId,
             content = content,
             inputTokens = inputTokens,
-            outputTokens = outputTokens
+            outputTokens = outputTokens,
+            isFromRag = isFromRag,
+            currentMessages = _state.value.messages
         )
-
-        val currentMessages = _state.value.messages
-        val existingIndex = currentMessages.indexOfLast { it.id == messageId }
-
-        val newMessages = if (existingIndex >= 0) {
-            currentMessages.toMutableList().apply {
-                set(existingIndex, assistantMessage)
-            }
-        } else {
-            currentMessages + assistantMessage
-        }
-
-        _state.update { it.copy(messages = newMessages) }
+        _state.update { it.copy(messages = updatedMessages) }
     }
 
     // ============================================================================
@@ -540,7 +415,7 @@ ALWAYS make citations clickable and properly formatted!
     private suspend fun handleStreamingError(error: Throwable) {
         Napier.e("Error receiving message", error)
 
-        val errorMessage = createErrorMessage(
+        val errorMessage = chatHistoryManager.createErrorMessage(
             error.message ?: "Failed to get response"
         )
 
@@ -553,7 +428,7 @@ ALWAYS make citations clickable and properly formatted!
             )
         }
 
-        repository.saveMessages(messagesWithError)
+        chatHistoryManager.saveMessages(messagesWithError)
     }
 
     private fun handleSendError(error: Exception) {
@@ -567,108 +442,33 @@ ALWAYS make citations clickable and properly formatted!
     }
 
     // ============================================================================
-    // System Prompt Resolution
+    // History Operations
     // ============================================================================
-
-    private suspend fun resolveSystemPrompt(userText: String): String {
-        val baseSystemPrompt = repository.getSystemPrompt()
-            ?: "You are a helpful assistant."
-
-        return if (_state.value.isTechSpecMode) {
-            buildTechSpecSystemPrompt(userText)
-        } else {
-            baseSystemPrompt
-        }
-    }
-
-    // ============================================================================
-    // Tech Spec Mode
-    // ============================================================================
-
-    private fun buildTechSpecSystemPrompt(userText: String): String {
-        return when {
-            // First message: initiate questions
-            _state.value.techSpecInitialRequest == null -> {
-                TechSpecPrompts.getInitialPrompt(userText)
-            }
-            // Questions 2-5: continue asking
-            _state.value.techSpecQuestionsAsked < 5 -> {
-                val questionNumber = _state.value.techSpecQuestionsAsked + 1
-                TechSpecPrompts.getContinuationPrompt(
-                    initialRequest = _state.value.techSpecInitialRequest ?: userText,
-                    questionsAsked = _state.value.techSpecQuestionsAsked,
-                    questionNumber = questionNumber
-                )
-            }
-            // All questions collected: create specification
-            else -> {
-                TechSpecPrompts.getFinalSpecificationPrompt(
-                    initialRequest = _state.value.techSpecInitialRequest ?: userText
-                )
-            }
-        }
-    }
-
-    private fun updateTechSpecState(userText: String) {
-        _state.update { currentState ->
-            when {
-                // First message: save initial request and increment counter
-                currentState.techSpecInitialRequest == null -> {
-                    Napier.d("Tech Spec: Saved initial request and asked first question")
-                    currentState.copy(
-                        techSpecInitialRequest = userText,
-                        techSpecQuestionsAsked = 1
-                    )
-                }
-                // Questions 2-5: increment counter
-                currentState.techSpecQuestionsAsked < 5 -> {
-                    val newCount = currentState.techSpecQuestionsAsked + 1
-                    Napier.d("Tech Spec: Asked question $newCount of 5")
-                    currentState.copy(techSpecQuestionsAsked = newCount)
-                }
-                // All questions collected: reset state for next session
-                else -> {
-                    Napier.d("Tech Spec: Created final specification, resetting state")
-                    currentState.copy(
-                        techSpecInitialRequest = null,
-                        techSpecQuestionsAsked = 0
-                    )
-                }
-            }
-        }
-    }
 
     private fun clearHistory() {
         viewModelScope.launch {
-            try {
-                repository.clearMessages()
+            val result = chatHistoryManager.clearHistory()
+            if (result.isSuccess) {
+                val resetState = techSpecManager.resetState()
                 _state.update {
                     it.copy(
                         messages = emptyList(),
                         error = null,
-                        techSpecInitialRequest = null,
-                        techSpecQuestionsAsked = 0
+                        techSpecState = resetState
                     )
                 }
-            } catch (e: Exception) {
-                Napier.e("Error clearing history", e)
+            } else {
+                Napier.e("Error clearing history", result.exceptionOrNull())
                 _state.update { it.copy(error = "Failed to clear history") }
             }
         }
     }
 
     private fun retryLastMessage() {
-        val lastUserMessage = _state.value.messages
-            .lastOrNull { it.role == MessageRole.USER }
-
-        if (lastUserMessage != null) {
-            // Remove messages after the last user message
-            val messagesToKeep = _state.value.messages
-                .takeWhile { it.id != lastUserMessage.id } + lastUserMessage
-
+        val retryInfo = chatHistoryManager.getMessagesForRetry(_state.value.messages)
+        if (retryInfo != null) {
+            val (messagesToKeep, lastUserMessage) = retryInfo
             _state.update { it.copy(messages = messagesToKeep) }
-
-            // Resend the message
             sendMessage(lastUserMessage.content)
         }
     }
@@ -683,30 +483,37 @@ ALWAYS make citations clickable and properly formatted!
     // ============================================================================
 
     private fun attemptCompression() {
+        if (!chatHistoryManager.shouldAttemptCompression(_state.value.messages)) {
+            return
+        }
+
         viewModelScope.launch {
             try {
                 val result = repository.compressMessages()
 
                 if (result.isSuccess && result.getOrNull() == true) {
                     // Compression was performed
-                    val messages = repository.getMessages()
-                    val lastSummary = messages.lastOrNull { it.isSummary }
+                    val messagesResult = chatHistoryManager.loadMessages()
+                    if (messagesResult.isSuccess) {
+                        val messages = messagesResult.getOrThrow()
+                        val lastSummary = messages.lastOrNull { it.isSummary }
 
-                    val notification = if (lastSummary != null) {
-                        val count = lastSummary.summarizedMessageCount ?: 0
-                        "History compressed: $count messages summarized to save tokens"
-                    } else {
-                        "History compressed successfully"
+                        val notification = if (lastSummary != null) {
+                            val count = lastSummary.summarizedMessageCount ?: 0
+                            "History compressed: $count messages summarized to save tokens"
+                        } else {
+                            "History compressed successfully"
+                        }
+
+                        _state.update {
+                            it.copy(
+                                messages = messages,
+                                compressionNotification = notification
+                            )
+                        }
+
+                        Napier.d("Compression notification shown: $notification")
                     }
-
-                    _state.update {
-                        it.copy(
-                            messages = messages,
-                            compressionNotification = notification
-                        )
-                    }
-
-                    Napier.d("Compression notification shown: $notification")
                 }
             } catch (e: Exception) {
                 Napier.e("Error during compression attempt", e)
@@ -752,12 +559,7 @@ ALWAYS make citations clickable and properly formatted!
         _state.update { it.copy(messages = updatedMessages) }
 
         viewModelScope.launch {
-            try {
-                repository.saveMessages(updatedMessages)
-                Napier.d("Task summary added to chat")
-            } catch (e: Exception) {
-                Napier.e("Error saving task summary", e)
-            }
+            chatHistoryManager.saveMessages(updatedMessages)
         }
     }
 
@@ -828,8 +630,7 @@ data class ChatUiState(
     val error: String? = null,
     val isApiKeyConfigured: Boolean = false,
     val isTechSpecMode: Boolean = false,
-    val techSpecInitialRequest: String? = null,
-    val techSpecQuestionsAsked: Int = 0,
+    val techSpecState: TechSpecManager.TechSpecState = TechSpecManager.TechSpecState(),
     val selectedModel: String = "claude-3-5-haiku-20241022",
     val isModelComparisonMode: Boolean = false,
     val compressionNotification: String? = null,

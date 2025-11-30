@@ -17,7 +17,8 @@ data class Message(
     val isSummary: Boolean = false,
     val summarizedMessageCount: Int? = null,
     val summarizedTokens: Int? = null,
-    val tokensSaved: Int? = null
+    val tokensSaved: Int? = null,
+    val isFromRag: Boolean = false  // Indicates if this response was generated using RAG
 )
 
 enum class MessageRole {

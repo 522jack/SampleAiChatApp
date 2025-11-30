@@ -368,18 +368,25 @@ class RagService(
             }
 
             // Use a more capable model with temperature=0 for consistent results
+            Napier.d("Sending reranking request to Ollama for query: '$query'")
+            Napier.d("Reranking prompt length: ${prompt.length} chars")
             val response = ollamaClient.generateCompletion(
                 prompt = prompt,
                 model = "llama3.2:3b",
                 options = OllamaOptions(
                     temperature = 0.0,
-                    numPredict = 10  // We only need a short number response
+                    numPredict = 50  // Increased from 10 to allow more response tokens
                 )
             )
 
             // Extract score from response
+            if (response.isFailure) {
+                Napier.w("Ollama reranking failed: ${response.exceptionOrNull()?.message}")
+                return 0.0
+            }
+
             val responseText = response.getOrNull()?.trim() ?: ""
-            Napier.d("Rerank response for query '$query': '$responseText'")
+            Napier.d("Rerank response for query '$query': '$responseText' (length: ${responseText.length})")
 
             // Try to extract a number from the response
             val score = responseText
@@ -388,15 +395,15 @@ class RagService(
                 ?.toDoubleOrNull()
                 ?.coerceIn(0.0, 1.0)
                 ?: run {
-                    Napier.w("Failed to parse rerank score from response: '$responseText', using 0.3")
-                    0.3  // Lower default to not promote uncertain results
+                    Napier.w("Failed to parse rerank score from response: '$responseText', using 0.0")
+                    0.0  // Default to 0 for failed parsing - will be filtered out
                 }
 
-            Napier.d("Calculated rerank score: $score")
+            Napier.d("Calculated rerank score: $score for content snippet: ${content.take(100)}...")
             return score
         } catch (e: Exception) {
             Napier.w("Failed to calculate rerank score: ${e.message}")
-            return 0.3 // Lower default score on error
+            return 0.0 // Default to 0 on error - will be filtered out
         }
     }
 

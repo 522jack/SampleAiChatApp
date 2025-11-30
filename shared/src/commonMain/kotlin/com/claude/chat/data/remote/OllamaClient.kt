@@ -117,9 +117,33 @@ class OllamaClient(
             }
 
             if (response.status.isSuccess()) {
-                val generateResponse = response.body<OllamaGenerateResponse>()
-                Napier.d("Successfully generated completion")
-                Result.success(generateResponse.response)
+                // Get raw response text for debugging
+                val rawResponse = response.bodyAsText()
+
+                // Try to parse the response - Ollama may return NDJSON (newline-delimited JSON)
+                try {
+                    val json = kotlinx.serialization.json.Json {
+                        ignoreUnknownKeys = true
+                        isLenient = true
+                    }
+
+                    // Parse NDJSON - split by newlines and parse each JSON object
+                    val lines = rawResponse.trim().lines().filter { it.isNotBlank() }
+                    val fullResponse = StringBuilder()
+
+                    for (line in lines) {
+                        val chunkResponse = json.decodeFromString<OllamaGenerateResponse>(line)
+                        fullResponse.append(chunkResponse.response)
+                    }
+
+                    val finalText = fullResponse.toString()
+                    Napier.d("Successfully generated completion: '$finalText' (length: ${finalText.length})")
+                    Result.success(finalText)
+                } catch (e: Exception) {
+                    Napier.e("Failed to parse Ollama response: ${e.message}")
+                    Napier.e("Raw response was (first 500 chars): ${rawResponse.take(500)}")
+                    Result.failure(Exception("Failed to parse Ollama response: ${e.message}"))
+                }
             } else {
                 val error = "Ollama generate request failed: ${response.status}"
                 Napier.e(error)

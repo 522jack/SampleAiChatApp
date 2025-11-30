@@ -2,6 +2,7 @@ package com.claude.chat.data.local
 
 import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.MessageRole
+import com.claude.chat.platform.createFileStorage
 import com.russhwolf.settings.Settings
 import io.github.aakira.napier.Napier
 import kotlinx.datetime.Instant
@@ -19,11 +20,13 @@ class SettingsStorage(
         ignoreUnknownKeys = true
         prettyPrint = false
     }
+    private val fileStorage = createFileStorage()
 
     companion object {
         private const val KEY_API_KEY = "claude_api_key"
         private const val KEY_SYSTEM_PROMPT = "system_prompt"
-        private const val KEY_MESSAGES = "messages_history"
+        private const val KEY_MESSAGES = "messages_history"  // Deprecated - use file storage
+        private const val MESSAGES_FILE = "messages_history.json"
         private const val KEY_JSON_MODE = "json_mode"
         private const val KEY_TECH_SPEC_MODE = "tech_spec_mode"
         private const val KEY_SELECTED_MODEL = "selected_model"
@@ -109,36 +112,73 @@ class SettingsStorage(
         Napier.d("MCP ${if (enabled) "enabled" else "disabled"}")
     }
 
-    fun getMessages(): List<Message> {
-        val messagesJson = settings.getStringOrNull(KEY_MESSAGES) ?: return emptyList()
+    suspend fun getMessages(): List<Message> {
+        // Try to load from file storage first
+        val messagesJson = fileStorage.readTextFile(MESSAGES_FILE)
 
-        return try {
-            val storedMessages = json.decodeFromString<List<StoredMessage>>(messagesJson)
-            storedMessages.map { it.toDomainModel() }
-        } catch (e: Exception) {
-            Napier.e("Error loading messages", e)
-            emptyList()
+        if (messagesJson != null) {
+            return try {
+                val storedMessages = json.decodeFromString<List<StoredMessage>>(messagesJson)
+                Napier.d("Loaded ${storedMessages.size} messages from file storage")
+                storedMessages.map { it.toDomainModel() }
+            } catch (e: Exception) {
+                Napier.e("Error loading messages from file", e)
+                emptyList()
+            }
         }
+
+        // Fallback: try to migrate from old Settings storage
+        val oldMessagesJson = settings.getStringOrNull(KEY_MESSAGES)
+        if (oldMessagesJson != null) {
+            Napier.d("Found messages in old Settings storage, migrating to file storage...")
+            return try {
+                val storedMessages = json.decodeFromString<List<StoredMessage>>(oldMessagesJson)
+                val messages = storedMessages.map { it.toDomainModel() }
+
+                // Save to new file storage
+                saveMessages(messages)
+
+                // Clear old storage
+                settings.remove(KEY_MESSAGES)
+                Napier.d("Successfully migrated ${messages.size} messages to file storage")
+
+                messages
+            } catch (e: Exception) {
+                Napier.e("Error migrating messages from Settings", e)
+                emptyList()
+            }
+        }
+
+        return emptyList()
     }
 
-    fun saveMessages(messages: List<Message>) {
+    suspend fun saveMessages(messages: List<Message>) {
         try {
             val storedMessages = messages.map { StoredMessage.fromDomainModel(it) }
             val messagesJson = json.encodeToString(storedMessages)
-            settings.putString(KEY_MESSAGES, messagesJson)
-            Napier.d("Saved ${messages.size} messages")
+
+            val success = fileStorage.writeTextFile(MESSAGES_FILE, messagesJson)
+            if (success) {
+                Napier.d("Saved ${messages.size} messages to file (${messagesJson.length} chars)")
+            } else {
+                Napier.e("Failed to save messages to file")
+            }
         } catch (e: Exception) {
             Napier.e("Error saving messages", e)
+            throw e  // Re-throw to notify caller
         }
     }
 
-    fun clearMessages() {
+    suspend fun clearMessages() {
+        // Clear both old and new storage
         settings.remove(KEY_MESSAGES)
+        fileStorage.deleteFile(MESSAGES_FILE)
         Napier.d("Messages cleared")
     }
 
-    fun clearAll() {
+    suspend fun clearAll() {
         settings.clear()
+        fileStorage.deleteFile(MESSAGES_FILE)
         Napier.d("All settings cleared")
     }
 
@@ -209,7 +249,8 @@ private data class StoredMessage(
     val isSummary: Boolean = false,
     val summarizedMessageCount: Int? = null,
     val summarizedTokens: Int? = null,
-    val tokensSaved: Int? = null
+    val tokensSaved: Int? = null,
+    val isFromRag: Boolean = false
 ) {
     fun toDomainModel(): Message {
         return Message(
@@ -226,7 +267,8 @@ private data class StoredMessage(
             isSummary = isSummary,
             summarizedMessageCount = summarizedMessageCount,
             summarizedTokens = summarizedTokens,
-            tokensSaved = tokensSaved
+            tokensSaved = tokensSaved,
+            isFromRag = isFromRag
         )
     }
 
@@ -245,7 +287,8 @@ private data class StoredMessage(
                 isSummary = message.isSummary,
                 summarizedMessageCount = message.summarizedMessageCount,
                 summarizedTokens = message.summarizedTokens,
-                tokensSaved = message.tokensSaved
+                tokensSaved = message.tokensSaved,
+                isFromRag = message.isFromRag
             )
         }
     }

@@ -51,11 +51,22 @@ fun App(
     }
 
     val chatViewModel = viewModel {
-        ChatViewModel(appContainer.chatRepository)
+        ChatViewModel(
+            repository = appContainer.chatRepository,
+            chatHistoryManager = appContainer.chatHistoryManager,
+            messageSendingOrchestrator = appContainer.messageSendingOrchestrator,
+            techSpecManager = appContainer.techSpecManager
+        )
     }
 
     val settingsViewModel = viewModel {
-        SettingsViewModel(appContainer.chatRepository, appContainer)
+        SettingsViewModel(
+            repository = appContainer.chatRepository,
+            appContainer = appContainer,
+            apiConfigManager = appContainer.apiConfigurationManager,
+            modelConfigManager = appContainer.modelConfigurationManager,
+            ragConfigManager = appContainer.ragConfigurationManager
+        )
     }
 
     val chatState by chatViewModel.state.collectAsState()

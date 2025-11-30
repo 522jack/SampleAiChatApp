@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.claude.chat.data.model.*
 import com.claude.chat.data.repository.ChatRepository
 import com.claude.chat.di.AppContainer
+import com.claude.chat.domain.manager.ApiConfigurationManager
+import com.claude.chat.domain.manager.ModelConfigurationManager
+import com.claude.chat.domain.manager.RagConfigurationManager
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,35 +17,44 @@ import kotlinx.coroutines.launch
 
 /**
  * ViewModel for settings screen
+ * Delegates business logic to specialized managers
  */
 class SettingsViewModel(
     private val repository: ChatRepository,
-    private val appContainer: AppContainer
+    private val appContainer: AppContainer,
+    private val apiConfigManager: ApiConfigurationManager,
+    private val modelConfigManager: ModelConfigurationManager,
+    private val ragConfigManager: RagConfigurationManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     init {
-        loadSettings()
-        loadMcpServers()
-        loadRagIndexAndDocuments()
+        loadAllSettings()
     }
 
     fun onIntent(intent: SettingsIntent) {
         when (intent) {
+            // API Configuration
             is SettingsIntent.SaveApiKey -> saveApiKey(intent.apiKey)
+            is SettingsIntent.ClearApiKey -> clearApiKey()
+            is SettingsIntent.UpdateApiKeyInput -> updateApiKeyInput(intent.apiKey)
             is SettingsIntent.SaveSystemPrompt -> saveSystemPrompt(intent.prompt)
+            is SettingsIntent.UpdateSystemPromptInput -> updateSystemPromptInput(intent.prompt)
+            is SettingsIntent.SaveTemperature -> saveTemperature(intent.temperature)
+            is SettingsIntent.UpdateTemperatureInput -> updateTemperatureInput(intent.temperature)
+
+            // Model Configuration
             is SettingsIntent.ToggleJsonMode -> toggleJsonMode(intent.enabled)
             is SettingsIntent.ToggleTechSpecMode -> toggleTechSpecMode(intent.enabled)
             is SettingsIntent.ToggleModelComparisonMode -> toggleModelComparisonMode(intent.enabled)
             is SettingsIntent.ToggleMcp -> toggleMcp(intent.enabled)
+
+            // Data Management
             is SettingsIntent.ClearAllData -> clearAllData()
-            is SettingsIntent.ClearApiKey -> clearApiKey()
-            is SettingsIntent.UpdateApiKeyInput -> updateApiKeyInput(intent.apiKey)
-            is SettingsIntent.UpdateSystemPromptInput -> updateSystemPromptInput(intent.prompt)
-            is SettingsIntent.UpdateTemperatureInput -> updateTemperatureInput(intent.temperature)
-            is SettingsIntent.SaveTemperature -> saveTemperature(intent.temperature)
+
+            // MCP Server Management
             is SettingsIntent.AddMcpServer -> showAddServerDialog()
             is SettingsIntent.RemoveMcpServer -> removeMcpServer(intent.serverId)
             is SettingsIntent.ToggleMcpServer -> toggleMcpServer(intent.serverId, intent.enabled)
@@ -51,11 +63,14 @@ class SettingsViewModel(
             is SettingsIntent.UpdateServerName -> _state.update { it.copy(newServerName = intent.name) }
             is SettingsIntent.UpdateServerUrl -> _state.update { it.copy(newServerUrl = intent.url) }
             is SettingsIntent.SaveNewServer -> saveNewServer()
-            // RAG intents
+
+            // RAG Management
             is SettingsIntent.ToggleRagMode -> toggleRagMode(intent.enabled)
             is SettingsIntent.ToggleRagReranking -> toggleRagReranking(intent.enabled)
             is SettingsIntent.ShowAddDocumentDialog -> _state.update { it.copy(showAddDocumentDialog = true) }
-            is SettingsIntent.HideAddDocumentDialog -> _state.update { it.copy(showAddDocumentDialog = false, newDocumentTitle = "", newDocumentContent = "") }
+            is SettingsIntent.HideAddDocumentDialog -> _state.update {
+                it.copy(showAddDocumentDialog = false, newDocumentTitle = "", newDocumentContent = "")
+            }
             is SettingsIntent.UpdateDocumentTitle -> _state.update { it.copy(newDocumentTitle = intent.title) }
             is SettingsIntent.UpdateDocumentContent -> _state.update { it.copy(newDocumentContent = intent.content) }
             is SettingsIntent.SaveNewDocument -> saveNewDocument()
@@ -63,40 +78,44 @@ class SettingsViewModel(
         }
     }
 
-    private fun loadSettings() {
+    // ============================================================================
+    // Loading Settings
+    // ============================================================================
+
+    private fun loadAllSettings() {
         viewModelScope.launch {
             try {
-                val apiKey = repository.getApiKey() ?: ""
-                val systemPrompt = repository.getSystemPrompt() ?: ""
-                val jsonMode = repository.getJsonMode()
-                val techSpecMode = repository.getTechSpecMode()
-                val temperature = repository.getTemperature()
-                val comparisonMode = repository.getModelComparisonMode()
-                val mcpEnabled = repository.getMcpEnabled()
-                val ragMode = repository.getRagMode()
-                val ragReranking = repository.getRagRerankingEnabled()
+                // Load API settings
+                val apiKey = apiConfigManager.getApiKey() ?: ""
+                val systemPrompt = apiConfigManager.getSystemPrompt() ?: ""
+                val temperature = apiConfigManager.getTemperature()
 
-                // Log key info for debugging
-                if (apiKey.isNotBlank()) {
-                    val keyPreview = apiKey.take(10)
-                    val keyLength = apiKey.length
-                    val startsWithCorrectPrefix = apiKey.startsWith("sk-ant-")
-                    Napier.d("Loaded API key: prefix='$keyPreview...', length=$keyLength, valid prefix=$startsWithCorrectPrefix")
-                } else {
-                    Napier.d("No API key found in storage")
-                }
+                // Log API key info (without exposing full key)
+                apiConfigManager.logApiKeyInfo(apiKey)
+
+                // Load model settings
+                val modelSettings = modelConfigManager.loadAllSettings()
+
+                // Load RAG settings
+                ragConfigManager.loadRagIndex()
+                val ragSettings = ragConfigManager.loadAllSettings()
+
+                // Load MCP servers
+                val mcpServers = appContainer.mcpManager.getExternalServers()
 
                 _state.update {
                     it.copy(
                         apiKey = apiKey,
                         systemPrompt = systemPrompt,
-                        jsonModeEnabled = jsonMode,
-                        techSpecModeEnabled = techSpecMode,
-                        modelComparisonModeEnabled = comparisonMode,
-                        mcpEnabled = mcpEnabled,
-                        ragModeEnabled = ragMode,
-                        ragRerankingEnabled = ragReranking,
                         temperature = temperature.toString(),
+                        jsonModeEnabled = modelSettings.jsonMode,
+                        techSpecModeEnabled = modelSettings.techSpecMode,
+                        modelComparisonModeEnabled = modelSettings.comparisonMode,
+                        mcpEnabled = modelSettings.mcpEnabled,
+                        ragModeEnabled = ragSettings.ragMode,
+                        ragRerankingEnabled = ragSettings.ragReranking,
+                        ragDocuments = ragSettings.documents,
+                        mcpServers = mcpServers,
                         isLoading = false
                     )
                 }
@@ -112,6 +131,10 @@ class SettingsViewModel(
         }
     }
 
+    // ============================================================================
+    // API Configuration
+    // ============================================================================
+
     private fun updateApiKeyInput(apiKey: String) {
         _state.update { it.copy(apiKey = apiKey) }
     }
@@ -124,88 +147,28 @@ class SettingsViewModel(
         _state.update { it.copy(temperature = temperature) }
     }
 
-    private fun saveTemperature(temperatureStr: String) {
+    private fun saveApiKey(apiKey: String) {
         viewModelScope.launch {
-            try {
-                val temperature = temperatureStr.toDoubleOrNull()
-                if (temperature == null) {
-                    _state.update {
-                        it.copy(
-                            error = "Invalid temperature value. Please enter a number.",
-                            saveSuccess = false
-                        )
-                    }
-                    return@launch
-                }
-
-                if (temperature !in 0.0..1.0) {
-                    _state.update {
-                        it.copy(
-                            error = "Temperature must be between 0.0 and 1.0",
-                            saveSuccess = false
-                        )
-                    }
-                    return@launch
-                }
-
-                repository.saveTemperature(temperature)
-                _state.update {
-                    it.copy(
-                        saveSuccess = true,
-                        error = null
-                    )
-                }
-                Napier.d("Temperature saved successfully: $temperature")
-            } catch (e: Exception) {
-                Napier.e("Error saving temperature", e)
-                _state.update {
-                    it.copy(
-                        error = "Failed to save temperature: ${e.message}",
-                        saveSuccess = false
-                    )
-                }
-            }
+            val result = apiConfigManager.validateAndSaveApiKey(apiKey)
+            handleOperationResult(result, "API key saved successfully")
         }
     }
 
-    private fun saveApiKey(apiKey: String) {
+    private fun clearApiKey() {
         viewModelScope.launch {
-            try {
-                // Validate API key format
-                val trimmedKey = apiKey.trim()
-                if (!trimmedKey.startsWith("sk-ant-")) {
-                    _state.update {
-                        it.copy(
-                            error = "Invalid API key format. Claude API keys start with 'sk-ant-'",
-                            saveSuccess = false
-                        )
-                    }
-                    return@launch
-                }
-
-                if (trimmedKey.length < 20) {
-                    _state.update {
-                        it.copy(
-                            error = "API key is too short. Please check your key.",
-                            saveSuccess = false
-                        )
-                    }
-                    return@launch
-                }
-
-                repository.saveApiKey(trimmedKey)
+            val result = apiConfigManager.clearApiKey()
+            if (result.isSuccess) {
                 _state.update {
                     it.copy(
+                        apiKey = "",
                         saveSuccess = true,
                         error = null
                     )
                 }
-                Napier.d("API key saved successfully")
-            } catch (e: Exception) {
-                Napier.e("Error saving API key", e)
+            } else {
                 _state.update {
                     it.copy(
-                        error = "Failed to save API key: ${e.message}",
+                        error = "Failed to clear API key",
                         saveSuccess = false
                     )
                 }
@@ -215,26 +178,69 @@ class SettingsViewModel(
 
     private fun saveSystemPrompt(prompt: String) {
         viewModelScope.launch {
-            try {
-                repository.saveSystemPrompt(prompt)
-                _state.update {
-                    it.copy(
-                        saveSuccess = true,
-                        error = null
-                    )
-                }
-                Napier.d("System prompt saved successfully")
-            } catch (e: Exception) {
-                Napier.e("Error saving system prompt", e)
-                _state.update {
-                    it.copy(
-                        error = "Failed to save system prompt",
-                        saveSuccess = false
-                    )
-                }
+            val result = apiConfigManager.saveSystemPrompt(prompt)
+            handleOperationResult(result, "System prompt saved successfully")
+        }
+    }
+
+    private fun saveTemperature(temperatureStr: String) {
+        viewModelScope.launch {
+            val result = apiConfigManager.validateAndSaveTemperature(temperatureStr)
+            handleOperationResult(result, "Temperature saved successfully")
+        }
+    }
+
+    // ============================================================================
+    // Model Configuration
+    // ============================================================================
+
+    private fun toggleJsonMode(enabled: Boolean) {
+        viewModelScope.launch {
+            val result = modelConfigManager.toggleJsonMode(enabled)
+            if (result.isSuccess) {
+                _state.update { it.copy(jsonModeEnabled = enabled) }
+            } else {
+                _state.update { it.copy(error = "Failed to update JSON mode setting") }
             }
         }
     }
+
+    private fun toggleTechSpecMode(enabled: Boolean) {
+        viewModelScope.launch {
+            val result = modelConfigManager.toggleTechSpecMode(enabled)
+            if (result.isSuccess) {
+                _state.update { it.copy(techSpecModeEnabled = enabled) }
+            } else {
+                _state.update { it.copy(error = "Failed to update Tech Spec mode setting") }
+            }
+        }
+    }
+
+    private fun toggleModelComparisonMode(enabled: Boolean) {
+        viewModelScope.launch {
+            val result = modelConfigManager.toggleModelComparisonMode(enabled)
+            if (result.isSuccess) {
+                _state.update { it.copy(modelComparisonModeEnabled = enabled) }
+            } else {
+                _state.update { it.copy(error = "Failed to update Model comparison mode setting") }
+            }
+        }
+    }
+
+    private fun toggleMcp(enabled: Boolean) {
+        viewModelScope.launch {
+            val result = modelConfigManager.toggleMcp(enabled)
+            if (result.isSuccess) {
+                _state.update { it.copy(mcpEnabled = enabled) }
+            } else {
+                _state.update { it.copy(error = "Failed to update MCP setting") }
+            }
+        }
+    }
+
+    // ============================================================================
+    // Data Management
+    // ============================================================================
 
     private fun clearAllData() {
         viewModelScope.launch {
@@ -259,124 +265,9 @@ class SettingsViewModel(
         }
     }
 
-    private fun clearApiKey() {
-        viewModelScope.launch {
-            try {
-                repository.saveApiKey("")
-                _state.update {
-                    it.copy(
-                        apiKey = "",
-                        saveSuccess = true,
-                        error = null
-                    )
-                }
-                Napier.d("API key cleared successfully")
-            } catch (e: Exception) {
-                Napier.e("Error clearing API key", e)
-                _state.update {
-                    it.copy(
-                        error = "Failed to clear API key",
-                        saveSuccess = false
-                    )
-                }
-            }
-        }
-    }
-
-    private fun toggleJsonMode(enabled: Boolean) {
-        viewModelScope.launch {
-            try {
-                repository.saveJsonMode(enabled)
-                _state.update {
-                    it.copy(
-                        jsonModeEnabled = enabled
-                    )
-                }
-                Napier.d("JSON mode ${if (enabled) "enabled" else "disabled"}")
-            } catch (e: Exception) {
-                Napier.e("Error toggling JSON mode", e)
-                _state.update {
-                    it.copy(
-                        error = "Failed to update JSON mode setting"
-                    )
-                }
-            }
-        }
-    }
-
-    private fun toggleTechSpecMode(enabled: Boolean) {
-        viewModelScope.launch {
-            try {
-                repository.saveTechSpecMode(enabled)
-                _state.update {
-                    it.copy(
-                        techSpecModeEnabled = enabled
-                    )
-                }
-                Napier.d("Tech Spec mode ${if (enabled) "enabled" else "disabled"}")
-            } catch (e: Exception) {
-                Napier.e("Error toggling Tech Spec mode", e)
-                _state.update {
-                    it.copy(
-                        error = "Failed to update Tech Spec mode setting"
-                    )
-                }
-            }
-        }
-    }
-
-    private fun toggleModelComparisonMode(enabled: Boolean) {
-        viewModelScope.launch {
-            try {
-                repository.saveModelComparisonMode(enabled)
-                _state.update {
-                    it.copy(
-                        modelComparisonModeEnabled = enabled
-                    )
-                }
-                Napier.d("Model comparison mode ${if (enabled) "enabled" else "disabled"}")
-            } catch (e: Exception) {
-                Napier.e("Error toggling Model comparison mode", e)
-                _state.update {
-                    it.copy(
-                        error = "Failed to update Model comparison mode setting"
-                    )
-                }
-            }
-        }
-    }
-
-    private fun toggleMcp(enabled: Boolean) {
-        viewModelScope.launch {
-            try {
-                repository.saveMcpEnabled(enabled)
-                _state.update {
-                    it.copy(
-                        mcpEnabled = enabled
-                    )
-                }
-                Napier.d("MCP ${if (enabled) "enabled" else "disabled"}")
-            } catch (e: Exception) {
-                Napier.e("Error toggling MCP", e)
-                _state.update {
-                    it.copy(
-                        error = "Failed to update MCP setting"
-                    )
-                }
-            }
-        }
-    }
-
-    private fun loadMcpServers() {
-        viewModelScope.launch {
-            try {
-                val servers = appContainer.mcpManager.getExternalServers()
-                _state.update { it.copy(mcpServers = servers) }
-            } catch (e: Exception) {
-                Napier.e("Error loading MCP servers", e)
-            }
-        }
-    }
+    // ============================================================================
+    // MCP Server Management
+    // ============================================================================
 
     private fun showAddServerDialog() {
         _state.update {
@@ -401,18 +292,14 @@ class SettingsViewModel(
 
                 // Determine type based on URL format
                 val config = if (url.startsWith("http://") || url.startsWith("https://")) {
-                    // HTTP/SSE connection
                     McpServerConfig(
                         id = "mcp-${kotlinx.datetime.Clock.System.now().toEpochMilliseconds()}",
                         name = name,
                         type = McpServerType.HTTP,
                         enabled = true,
-                        config = McpConnectionConfig.HttpConfig(
-                            url = url
-                        )
+                        config = McpConnectionConfig.HttpConfig(url = url)
                     )
                 } else {
-                    // Process-based connection (for desktop)
                     McpServerConfig(
                         id = "mcp-${kotlinx.datetime.Clock.System.now().toEpochMilliseconds()}",
                         name = name,
@@ -459,7 +346,6 @@ class SettingsViewModel(
     private fun toggleMcpServer(serverId: String, enabled: Boolean) {
         viewModelScope.launch {
             try {
-                // Update server config and reinitialize if needed
                 appContainer.mcpManager.updateExternalServer(serverId, enabled)
                 loadMcpServers()
                 _state.update { it.copy(saveSuccess = true) }
@@ -470,22 +356,27 @@ class SettingsViewModel(
         }
     }
 
-    fun resetSaveSuccess() {
-        _state.update { it.copy(saveSuccess = false) }
+    private fun loadMcpServers() {
+        viewModelScope.launch {
+            try {
+                val servers = appContainer.mcpManager.getExternalServers()
+                _state.update { it.copy(mcpServers = servers) }
+            } catch (e: Exception) {
+                Napier.e("Error loading MCP servers", e)
+            }
+        }
     }
 
     // ============================================================================
-    // RAG Methods
+    // RAG Management
     // ============================================================================
 
     private fun toggleRagMode(enabled: Boolean) {
         viewModelScope.launch {
-            try {
-                repository.saveRagMode(enabled)
+            val result = ragConfigManager.toggleRagMode(enabled)
+            if (result.isSuccess) {
                 _state.update { it.copy(ragModeEnabled = enabled) }
-                Napier.d("RAG mode ${if (enabled) "enabled" else "disabled"}")
-            } catch (e: Exception) {
-                Napier.e("Error toggling RAG mode", e)
+            } else {
                 _state.update { it.copy(error = "Failed to update RAG mode setting") }
             }
         }
@@ -493,46 +384,11 @@ class SettingsViewModel(
 
     private fun toggleRagReranking(enabled: Boolean) {
         viewModelScope.launch {
-            try {
-                repository.saveRagRerankingEnabled(enabled)
+            val result = ragConfigManager.toggleRagReranking(enabled)
+            if (result.isSuccess) {
                 _state.update { it.copy(ragRerankingEnabled = enabled) }
-                Napier.d("RAG reranking ${if (enabled) "enabled" else "disabled"}")
-            } catch (e: Exception) {
-                Napier.e("Error toggling RAG reranking", e)
+            } else {
                 _state.update { it.copy(error = "Failed to update RAG reranking setting") }
-            }
-        }
-    }
-
-    private fun loadRagIndexAndDocuments() {
-        viewModelScope.launch {
-            try {
-                // Load the RAG index first
-                val loadResult = repository.loadRagIndex()
-                if (loadResult.isSuccess) {
-                    Napier.d("RAG index loaded successfully")
-                } else {
-                    Napier.d("No RAG index found or failed to load")
-                }
-
-                // Then load the documents
-                val documents = repository.getIndexedDocuments()
-                _state.update { it.copy(ragDocuments = documents) }
-                Napier.d("Loaded ${documents.size} RAG documents")
-            } catch (e: Exception) {
-                Napier.e("Error loading RAG index and documents", e)
-            }
-        }
-    }
-
-    private fun loadRagDocuments() {
-        viewModelScope.launch {
-            try {
-                val documents = repository.getIndexedDocuments()
-                _state.update { it.copy(ragDocuments = documents) }
-                Napier.d("Loaded ${documents.size} RAG documents")
-            } catch (e: Exception) {
-                Napier.e("Error loading RAG documents", e)
             }
         }
     }
@@ -542,43 +398,10 @@ class SettingsViewModel(
             try {
                 _state.update { it.copy(isLoading = true, error = null) }
 
-                val title = _state.value.newDocumentTitle.trim()
-                val content = _state.value.newDocumentContent.trim()
+                val title = _state.value.newDocumentTitle
+                val content = _state.value.newDocumentContent
 
-                if (title.isBlank() || content.isBlank()) {
-                    _state.update {
-                        it.copy(
-                            error = "Title and content are required",
-                            isLoading = false
-                        )
-                    }
-                    return@launch
-                }
-
-                // Check OLLAMA availability before indexing
-                Napier.d("Checking OLLAMA availability...")
-                val isOllamaAvailable = try {
-                    appContainer.ollamaClient.checkHealth()
-                } catch (e: Exception) {
-                    Napier.e("OLLAMA health check failed", e)
-                    false
-                }
-
-                if (!isOllamaAvailable) {
-                    _state.update {
-                        it.copy(
-                            error = "Cannot connect to OLLAMA at localhost:11434. Please:\n" +
-                                    "1. Install OLLAMA from https://ollama.ai\n" +
-                                    "2. Start OLLAMA service\n" +
-                                    "3. Run: ollama pull nomic-embed-text",
-                            isLoading = false
-                        )
-                    }
-                    return@launch
-                }
-
-                Napier.d("OLLAMA is available, proceeding with indexing...")
-                val result = repository.indexDocument(title, content)
+                val result = ragConfigManager.indexDocument(title, content)
 
                 if (result.isSuccess) {
                     loadRagDocuments()
@@ -592,18 +415,8 @@ class SettingsViewModel(
                             error = null
                         )
                     }
-                    Napier.d("Document indexed successfully: $title")
                 } else {
-                    val exception = result.exceptionOrNull()
-                    val errorMessage = when {
-                        exception?.message?.contains("too large", ignoreCase = true) == true ->
-                            "File too large. Maximum size is 50MB or 10M characters."
-                        exception?.message?.contains("Too many chunks", ignoreCase = true) == true ->
-                            "Document is too complex. Try splitting it into smaller files."
-                        exception?.message?.contains("OLLAMA", ignoreCase = true) == true ->
-                            "Cannot connect to OLLAMA. Make sure it's running on localhost:11434"
-                        else -> "Failed to index document: ${exception?.message ?: "Unknown error"}"
-                    }
+                    val errorMessage = ragConfigManager.parseErrorMessage(result.exceptionOrNull())
                     _state.update {
                         it.copy(
                             error = errorMessage,
@@ -613,13 +426,7 @@ class SettingsViewModel(
                 }
             } catch (e: Exception) {
                 Napier.e("Error saving document", e)
-                val errorMessage = when {
-                    e.message?.contains("too large", ignoreCase = true) == true ->
-                        "File too large. Maximum size is 50MB or 10M characters."
-                    e.message?.contains("OutOfMemoryError", ignoreCase = true) == true ->
-                        "Not enough memory. Try a smaller file or increase heap size."
-                    else -> "Failed to save document: ${e.message}"
-                }
+                val errorMessage = ragConfigManager.parseErrorMessage(e)
                 _state.update {
                     it.copy(
                         error = errorMessage,
@@ -632,20 +439,50 @@ class SettingsViewModel(
 
     private fun removeRagDocument(documentId: String) {
         viewModelScope.launch {
-            try {
-                val removed = repository.removeRagDocument(documentId)
-                if (removed) {
-                    loadRagDocuments()
-                    _state.update { it.copy(saveSuccess = true) }
-                    Napier.d("Document removed: $documentId")
-                }
-            } catch (e: Exception) {
-                Napier.e("Error removing document", e)
+            val result = ragConfigManager.removeDocument(documentId)
+            if (result.isSuccess) {
+                loadRagDocuments()
+                _state.update { it.copy(saveSuccess = true) }
+            } else {
                 _state.update { it.copy(error = "Failed to remove document") }
             }
         }
     }
 
+    private fun loadRagDocuments() {
+        viewModelScope.launch {
+            val documents = ragConfigManager.getIndexedDocuments()
+            _state.update { it.copy(ragDocuments = documents) }
+        }
+    }
+
+    // ============================================================================
+    // Utility Methods
+    // ============================================================================
+
+    fun resetSaveSuccess() {
+        _state.update { it.copy(saveSuccess = false) }
+    }
+
+    private fun handleOperationResult(result: Result<Unit>, successMessage: String? = null) {
+        if (result.isSuccess) {
+            _state.update {
+                it.copy(
+                    saveSuccess = true,
+                    error = null
+                )
+            }
+            successMessage?.let { Napier.d(it) }
+        } else {
+            val errorMessage = result.exceptionOrNull()?.message ?: "Operation failed"
+            _state.update {
+                it.copy(
+                    error = errorMessage,
+                    saveSuccess = false
+                )
+            }
+        }
+    }
 }
 
 /**
