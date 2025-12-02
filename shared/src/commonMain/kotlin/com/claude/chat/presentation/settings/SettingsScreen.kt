@@ -198,6 +198,41 @@ fun SettingsScreen(
                 }
             }
 
+            // Theme Mode Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Theme",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Text(
+                        "Choose between light, dark, or system theme",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("SYSTEM" to "System", "LIGHT" to "Light", "DARK" to "Dark").forEach { (value, label) ->
+                            FilterChip(
+                                selected = state.themeMode == value,
+                                onClick = { onIntent(SettingsIntent.UpdateThemeMode(value)) },
+                                label = { Text(label) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
             // JSON Mode Section
             Card(
                 modifier = Modifier.fillMaxWidth()

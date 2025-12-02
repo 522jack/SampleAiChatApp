@@ -32,7 +32,7 @@ class AppContainer {
         ClaudeApiClientImpl(httpClient)
     }
 
-    private val settingsStorage by lazy {
+    val settingsStorage by lazy {
         SettingsStorage()
     }
 

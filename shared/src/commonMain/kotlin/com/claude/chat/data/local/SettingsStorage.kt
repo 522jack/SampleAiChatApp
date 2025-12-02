@@ -37,6 +37,7 @@ class SettingsStorage(
         private const val KEY_RAG_MODE = "rag_mode"
         private const val KEY_RAG_INDEX = "rag_index"
         private const val KEY_RAG_RERANKING_ENABLED = "rag_reranking_enabled"
+        private const val KEY_THEME_MODE = "theme_mode"
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
         private const val DEFAULT_TEMPERATURE = 1.0
     }
@@ -233,6 +234,15 @@ class SettingsStorage(
     fun saveRagRerankingEnabled(enabled: Boolean) {
         settings.putBoolean(KEY_RAG_RERANKING_ENABLED, enabled)
         Napier.d("RAG reranking ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun getThemeMode(): String {
+        return settings.getString(KEY_THEME_MODE, "SYSTEM")
+    }
+
+    fun saveThemeMode(themeMode: String) {
+        settings.putString(KEY_THEME_MODE, themeMode)
+        Napier.d("Theme mode set to: $themeMode")
     }
 }
 

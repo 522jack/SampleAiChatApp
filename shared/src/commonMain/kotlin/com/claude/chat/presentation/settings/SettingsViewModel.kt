@@ -75,6 +75,9 @@ class SettingsViewModel(
             is SettingsIntent.UpdateDocumentContent -> _state.update { it.copy(newDocumentContent = intent.content) }
             is SettingsIntent.SaveNewDocument -> saveNewDocument()
             is SettingsIntent.RemoveRagDocument -> removeRagDocument(intent.documentId)
+
+            // Theme Management
+            is SettingsIntent.UpdateThemeMode -> updateThemeMode(intent.themeMode)
         }
     }
 
@@ -103,6 +106,9 @@ class SettingsViewModel(
                 // Load MCP servers
                 val mcpServers = appContainer.mcpManager.getExternalServers()
 
+                // Load theme mode
+                val themeMode = appContainer.settingsStorage.getThemeMode()
+
                 _state.update {
                     it.copy(
                         apiKey = apiKey,
@@ -116,6 +122,7 @@ class SettingsViewModel(
                         ragRerankingEnabled = ragSettings.ragReranking,
                         ragDocuments = ragSettings.documents,
                         mcpServers = mcpServers,
+                        themeMode = themeMode,
                         isLoading = false
                     )
                 }
@@ -457,6 +464,16 @@ class SettingsViewModel(
     }
 
     // ============================================================================
+    // Theme Management
+    // ============================================================================
+
+    private fun updateThemeMode(themeMode: String) {
+        appContainer.settingsStorage.saveThemeMode(themeMode)
+        _state.update { it.copy(themeMode = themeMode) }
+        Napier.d("Theme mode updated to: $themeMode")
+    }
+
+    // ============================================================================
     // Utility Methods
     // ============================================================================
 
@@ -496,6 +513,7 @@ data class SettingsUiState(
     val modelComparisonModeEnabled: Boolean = false,
     val mcpEnabled: Boolean = false,
     val temperature: String = "1.0",
+    val themeMode: String = "SYSTEM",
     val isLoading: Boolean = true,
     val error: String? = null,
     val saveSuccess: Boolean = false,
@@ -547,4 +565,6 @@ sealed class SettingsIntent {
     data class UpdateDocumentContent(val content: String) : SettingsIntent()
     data object SaveNewDocument : SettingsIntent()
     data class RemoveRagDocument(val documentId: String) : SettingsIntent()
+    // Theme management
+    data class UpdateThemeMode(val themeMode: String) : SettingsIntent()
 }

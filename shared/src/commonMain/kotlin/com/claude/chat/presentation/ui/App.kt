@@ -22,8 +22,7 @@ import io.github.aakira.napier.Napier
  */
 @Composable
 fun App(
-    appContainer: AppContainer = remember { AppContainer() },
-    useDarkTheme: Boolean = isSystemInDarkTheme()
+    appContainer: AppContainer = remember { AppContainer() }
 ) {
     // Initialize logging
     LaunchedEffect(Unit) {
@@ -74,6 +73,14 @@ fun App(
 
     var currentScreen by remember { mutableStateOf(Screen.Chat) }
     var chatScreenCounter by remember { mutableStateOf(0) }
+
+    // Determine whether to use dark theme based on theme mode setting
+    val isSystemDark = isSystemInDarkTheme()
+    val useDarkTheme = when (settingsState.themeMode) {
+        "DARK" -> true
+        "LIGHT" -> false
+        else -> isSystemDark // "SYSTEM" or unknown defaults to system theme
+    }
 
     MaterialTheme(
         colorScheme = if (useDarkTheme) darkColorScheme() else lightColorScheme()
