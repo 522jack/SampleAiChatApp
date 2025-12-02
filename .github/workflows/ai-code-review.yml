@@ -70,7 +70,7 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          java -jar code-assistant-tool/build/libs/code-assistant-0.1.0.jar --mode review --pr $PR_NUMBER --repo $REPOSITORY
+          java -cp code-assistant-tool/build/libs/code-assistant-0.1.0.jar com.codeassistant.ReviewMainKt --mode review --pr $PR_NUMBER --repo $REPOSITORY
 
       - name: Comment on failure
         if: failure()
