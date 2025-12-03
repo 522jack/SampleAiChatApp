@@ -14,6 +14,8 @@ import com.claude.chat.presentation.chat.ChatScreen
 import com.claude.chat.presentation.chat.ChatViewModel
 import com.claude.chat.presentation.settings.SettingsScreen
 import com.claude.chat.presentation.settings.SettingsViewModel
+import com.claude.chat.presentation.support.SupportScreen
+import com.claude.chat.presentation.support.SupportViewModel
 import io.github.aakira.napier.DebugAntilog
 import io.github.aakira.napier.Napier
 
@@ -68,6 +70,12 @@ fun App(
         )
     }
 
+    val supportViewModel = viewModel {
+        SupportViewModel(
+            supportApiClient = appContainer.supportApiClient
+        )
+    }
+
     val chatState by chatViewModel.state.collectAsState()
     val settingsState by settingsViewModel.state.collectAsState()
 
@@ -108,7 +116,16 @@ fun App(
                         currentScreen = Screen.Chat
                         chatScreenCounter++ // Trigger settings reload
                     },
+                    onNavigateToSupport = { currentScreen = Screen.Support },
                     modifier = Modifier.fillMaxSize()
+                )
+            }
+            Screen.Support -> {
+                SupportScreen(
+                    viewModel = supportViewModel,
+                    onNavigateBack = {
+                        currentScreen = Screen.Settings
+                    }
                 )
             }
         }
@@ -117,5 +134,6 @@ fun App(
 
 enum class Screen {
     Chat,
-    Settings
+    Settings,
+    Support
 }

@@ -6,6 +6,7 @@ import com.claude.chat.data.model.McpServerPresets
 import com.claude.chat.data.remote.ClaudeApiClient
 import com.claude.chat.data.remote.ClaudeApiClientImpl
 import com.claude.chat.data.remote.OllamaClient
+import com.claude.chat.data.remote.SupportApiClient
 import com.claude.chat.data.remote.createHttpClient
 import com.claude.chat.data.repository.ChatRepository
 import com.claude.chat.data.repository.ChatRepositoryImpl
@@ -54,6 +55,13 @@ class AppContainer {
 
     val ragService by lazy {
         RagService(ollamaClient, textChunker)
+    }
+
+    val supportApiClient by lazy {
+        SupportApiClient(
+            httpClient = httpClient,
+            baseUrl = "http://localhost:8080"
+        )
     }
 
     // ============================================================================
