@@ -88,13 +88,13 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Desktop JAR
-        run: ./gradlew :desktopApp:jar
+        run: ./gradlew :desktopApp:jvmJar
 
       - name: Upload Desktop JAR
         uses: actions/upload-artifact@v4
         with:
           name: desktop-jar
-          path: desktopApp/build/compose/jars/*.jar
+          path: desktopApp/build/libs/*.jar
           retention-days: 30
 
   build-ios:
