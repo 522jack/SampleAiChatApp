@@ -222,4 +222,48 @@ interface ChatRepository {
      * Set RAG reranking enabled state
      */
     suspend fun saveRagRerankingEnabled(enabled: Boolean)
+
+    // ============================================================================
+    // Model Provider Methods
+    // ============================================================================
+
+    /**
+     * Get current model provider (CLAUDE or OLLAMA)
+     */
+    suspend fun getModelProvider(): String
+
+    /**
+     * Save model provider
+     */
+    suspend fun saveModelProvider(provider: String)
+
+    /**
+     * Get Ollama base URL
+     */
+    suspend fun getOllamaBaseUrl(): String
+
+    /**
+     * Save Ollama base URL
+     */
+    suspend fun saveOllamaBaseUrl(url: String)
+
+    /**
+     * Get Ollama model
+     */
+    suspend fun getOllamaModel(): String
+
+    /**
+     * Save Ollama model
+     */
+    suspend fun saveOllamaModel(model: String)
+
+    /**
+     * List available Ollama models
+     */
+    suspend fun listOllamaModels(): Result<List<String>>
+
+    /**
+     * Check if Ollama is available
+     */
+    suspend fun checkOllamaHealth(): Boolean
 }

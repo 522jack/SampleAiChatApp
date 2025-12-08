@@ -12,6 +12,10 @@ import com.claude.chat.data.model.RagSearchConfig
 import com.claude.chat.data.model.StreamChunk
 import com.claude.chat.data.model.ToolUseInfo
 import com.claude.chat.data.remote.ClaudeApiClient
+import com.claude.chat.data.remote.OllamaClient
+import com.claude.chat.data.model.OllamaChatMessage
+import com.claude.chat.data.model.OllamaOptions
+import com.claude.chat.domain.model.ModelProvider
 import com.claude.chat.domain.model.ClaudePricing
 import com.claude.chat.domain.model.Message
 import com.claude.chat.domain.model.MessageRole
@@ -41,6 +45,7 @@ import kotlin.uuid.Uuid
 @OptIn(ExperimentalUuidApi::class)
 class ChatRepositoryImpl(
     private val apiClient: ClaudeApiClient,
+    private val ollamaClient: OllamaClient,
     private val settingsStorage: SettingsStorage,
     private val mcpManager: McpManager,
     private val ragService: RagService,
@@ -101,6 +106,34 @@ class ChatRepositoryImpl(
                 content = ClaudeMessageContent.Text(message.content)
             )
         }
+    }
+
+    /**
+     * Maps domain Message objects to Ollama chat message format
+     */
+    private fun mapToOllamaMessages(messages: List<Message>, systemPrompt: String?): List<OllamaChatMessage> {
+        val ollamaMessages = mutableListOf<OllamaChatMessage>()
+
+        // Add system prompt if provided
+        if (systemPrompt != null) {
+            ollamaMessages.add(OllamaChatMessage(role = "system", content = systemPrompt))
+        }
+
+        // Add conversation messages
+        messages.forEach { message ->
+            ollamaMessages.add(
+                OllamaChatMessage(
+                    role = when (message.role) {
+                        MessageRole.USER -> "user"
+                        MessageRole.ASSISTANT -> "assistant"
+                        MessageRole.SYSTEM -> "system"
+                    },
+                    content = message.content
+                )
+            )
+        }
+
+        return ollamaMessages
     }
 
     /**
@@ -183,6 +216,20 @@ class ChatRepositoryImpl(
         messages: List<Message>,
         systemPrompt: String?
     ): Flow<StreamChunk> = flow {
+        // Check model provider
+        val modelProvider = ModelProvider.fromString(getModelProvider())
+
+        when (modelProvider) {
+            ModelProvider.OLLAMA -> {
+                // Use Ollama
+                sendMessageToOllama(messages, systemPrompt).collect { emit(it) }
+                return@flow
+            }
+            ModelProvider.CLAUDE -> {
+                // Continue with Claude implementation below
+            }
+        }
+
         val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
         val jsonModeEnabled = getJsonMode()
         val mcpEnabled = getMcpEnabled()
@@ -265,6 +312,17 @@ class ChatRepositoryImpl(
         systemPrompt: String?,
         onToolCall: suspend (toolName: String, arguments: Map<String, String>) -> Result<String>
     ): Flow<StreamChunk> = flow {
+        // Check model provider
+        val modelProvider = ModelProvider.fromString(getModelProvider())
+
+        // For Ollama, tools are not supported yet, use regular flow
+        if (modelProvider == ModelProvider.OLLAMA) {
+            Napier.d("Ollama provider selected, bypassing tool loop")
+            sendMessageWithUsage(messages, systemPrompt).collect { emit(it) }
+            return@flow
+        }
+
+        // For Claude, continue with tool loop
         val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
         val jsonModeEnabled = getJsonMode()
         val mcpEnabled = getMcpEnabled()
@@ -299,6 +357,12 @@ class ChatRepositoryImpl(
         messages: List<Message>,
         systemPrompt: String?
     ): Result<ModelComparisonResponse> {
+        // Check model provider - comparison mode only works with Claude
+        val modelProvider = ModelProvider.fromString(getModelProvider())
+        if (modelProvider == ModelProvider.OLLAMA) {
+            return Result.failure(IllegalStateException("Model comparison mode is not supported with Ollama"))
+        }
+
         val apiKey = getApiKey() ?: throw IllegalStateException("API key not configured")
         val finalSystemPrompt = systemPrompt ?: DEFAULT_SYSTEM_PROMPT
         val temperature = getTemperature()
@@ -598,5 +662,84 @@ class ChatRepositoryImpl(
 
     override suspend fun saveRagRerankingEnabled(enabled: Boolean) {
         settingsStorage.saveRagRerankingEnabled(enabled)
+    }
+
+    // ============================================================================
+    // Model Provider Methods
+    // ============================================================================
+
+    override suspend fun getModelProvider(): String {
+        return settingsStorage.getModelProvider()
+    }
+
+    override suspend fun saveModelProvider(provider: String) {
+        settingsStorage.saveModelProvider(provider)
+    }
+
+    override suspend fun getOllamaBaseUrl(): String {
+        return settingsStorage.getOllamaBaseUrl()
+    }
+
+    override suspend fun saveOllamaBaseUrl(url: String) {
+        settingsStorage.saveOllamaBaseUrl(url)
+    }
+
+    override suspend fun getOllamaModel(): String {
+        return settingsStorage.getOllamaModel()
+    }
+
+    override suspend fun saveOllamaModel(model: String) {
+        settingsStorage.saveOllamaModel(model)
+    }
+
+    override suspend fun listOllamaModels(): Result<List<String>> {
+        return ollamaClient.listModels()
+    }
+
+    override suspend fun checkOllamaHealth(): Boolean {
+        return ollamaClient.checkHealth()
+    }
+
+    /**
+     * Send message to Ollama and return as Flow
+     */
+    private suspend fun sendMessageToOllama(
+        messages: List<Message>,
+        systemPrompt: String?
+    ): Flow<StreamChunk> = flow {
+        try {
+            val ollamaMessages = mapToOllamaMessages(messages, systemPrompt)
+            val ollamaModel = getOllamaModel()
+            val temperature = getTemperature()
+
+            val options = OllamaOptions(temperature = temperature)
+
+            Napier.d("Sending message to Ollama with model $ollamaModel")
+
+            val result = ollamaClient.sendChatMessage(
+                messages = ollamaMessages,
+                model = ollamaModel,
+                options = options
+            )
+
+            if (result.isSuccess) {
+                val response = result.getOrThrow()
+
+                // Emit the response text
+                emit(StreamChunk(text = response.message.content))
+
+                // Emit completion
+                emit(StreamChunk(isComplete = true))
+
+                Napier.d("Ollama response received successfully")
+            } else {
+                val error = result.exceptionOrNull()?.message ?: "Unknown error"
+                Napier.e("Ollama request failed: $error")
+                throw Exception("Ollama error: $error")
+            }
+        } catch (e: Exception) {
+            Napier.e("Error in Ollama message flow", e)
+            throw e
+        }
     }
 }

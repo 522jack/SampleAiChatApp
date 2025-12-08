@@ -78,6 +78,13 @@ class SettingsViewModel(
 
             // Theme Management
             is SettingsIntent.UpdateThemeMode -> updateThemeMode(intent.themeMode)
+
+            // Model Provider Management
+            is SettingsIntent.UpdateModelProvider -> updateModelProvider(intent.provider)
+            is SettingsIntent.UpdateOllamaBaseUrl -> updateOllamaBaseUrl(intent.url)
+            is SettingsIntent.UpdateOllamaModel -> updateOllamaModel(intent.model)
+            is SettingsIntent.RefreshOllamaModels -> refreshOllamaModels()
+            is SettingsIntent.CheckOllamaHealth -> checkOllamaHealth()
         }
     }
 
@@ -109,6 +116,11 @@ class SettingsViewModel(
                 // Load theme mode
                 val themeMode = appContainer.settingsStorage.getThemeMode()
 
+                // Load model provider settings
+                val modelProvider = repository.getModelProvider()
+                val ollamaBaseUrl = repository.getOllamaBaseUrl()
+                val ollamaModel = repository.getOllamaModel()
+
                 _state.update {
                     it.copy(
                         apiKey = apiKey,
@@ -123,8 +135,17 @@ class SettingsViewModel(
                         ragDocuments = ragSettings.documents,
                         mcpServers = mcpServers,
                         themeMode = themeMode,
+                        modelProvider = modelProvider,
+                        ollamaBaseUrl = ollamaBaseUrl,
+                        ollamaModel = ollamaModel,
                         isLoading = false
                     )
+                }
+
+                // Load Ollama models if Ollama provider is selected
+                if (modelProvider == "OLLAMA") {
+                    refreshOllamaModels()
+                    checkOllamaHealth()
                 }
             } catch (e: Exception) {
                 Napier.e("Error loading settings", e)
@@ -474,6 +495,63 @@ class SettingsViewModel(
     }
 
     // ============================================================================
+    // Model Provider Management
+    // ============================================================================
+
+    private fun updateModelProvider(provider: String) {
+        viewModelScope.launch {
+            repository.saveModelProvider(provider)
+            _state.update { it.copy(modelProvider = provider) }
+            Napier.d("Model provider updated to: $provider")
+
+            // Load Ollama models when switching to Ollama
+            if (provider == "OLLAMA") {
+                refreshOllamaModels()
+                checkOllamaHealth()
+            }
+        }
+    }
+
+    private fun updateOllamaBaseUrl(url: String) {
+        viewModelScope.launch {
+            repository.saveOllamaBaseUrl(url)
+            _state.update { it.copy(ollamaBaseUrl = url) }
+            Napier.d("Ollama base URL updated to: $url")
+        }
+    }
+
+    private fun updateOllamaModel(model: String) {
+        viewModelScope.launch {
+            repository.saveOllamaModel(model)
+            _state.update { it.copy(ollamaModel = model) }
+            Napier.d("Ollama model updated to: $model")
+        }
+    }
+
+    private fun refreshOllamaModels() {
+        viewModelScope.launch {
+            val result = repository.listOllamaModels()
+            if (result.isSuccess) {
+                val models = result.getOrThrow()
+                _state.update { it.copy(availableOllamaModels = models) }
+                Napier.d("Loaded ${models.size} Ollama models")
+            } else {
+                val error = result.exceptionOrNull()?.message ?: "Failed to load models"
+                Napier.e("Failed to load Ollama models: $error")
+                _state.update { it.copy(availableOllamaModels = emptyList()) }
+            }
+        }
+    }
+
+    private fun checkOllamaHealth() {
+        viewModelScope.launch {
+            val healthy = repository.checkOllamaHealth()
+            _state.update { it.copy(ollamaHealthy = healthy) }
+            Napier.d("Ollama health check: $healthy")
+        }
+    }
+
+    // ============================================================================
     // Utility Methods
     // ============================================================================
 
@@ -517,6 +595,12 @@ data class SettingsUiState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val saveSuccess: Boolean = false,
+    // Model Provider settings
+    val modelProvider: String = "CLAUDE",
+    val ollamaBaseUrl: String = "http://localhost:11434",
+    val ollamaModel: String = "llama2",
+    val availableOllamaModels: List<String> = emptyList(),
+    val ollamaHealthy: Boolean = false,
     // MCP Server management
     val mcpServers: List<McpServerConfig> = emptyList(),
     val showAddServerDialog: Boolean = false,
@@ -567,4 +651,10 @@ sealed class SettingsIntent {
     data class RemoveRagDocument(val documentId: String) : SettingsIntent()
     // Theme management
     data class UpdateThemeMode(val themeMode: String) : SettingsIntent()
+    // Model Provider management
+    data class UpdateModelProvider(val provider: String) : SettingsIntent()
+    data class UpdateOllamaBaseUrl(val url: String) : SettingsIntent()
+    data class UpdateOllamaModel(val model: String) : SettingsIntent()
+    data object RefreshOllamaModels : SettingsIntent()
+    data object CheckOllamaHealth : SettingsIntent()
 }

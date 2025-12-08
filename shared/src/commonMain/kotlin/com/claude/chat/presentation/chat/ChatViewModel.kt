@@ -41,6 +41,7 @@ class ChatViewModel(
         loadMcpTools()
         loadRagMode()
         loadRagDocuments()
+        loadModelProvider()
     }
 
     // ============================================================================
@@ -76,6 +77,8 @@ class ChatViewModel(
         loadTechSpecMode()
         loadModelComparisonMode()
         loadRagMode()
+        loadModelProvider()
+        loadSelectedModel()
     }
 
     private fun loadRagMode() {
@@ -128,9 +131,14 @@ class ChatViewModel(
     private fun loadSelectedModel() {
         viewModelScope.launch {
             try {
-                val selectedModel = repository.getSelectedModel()
+                val modelProvider = repository.getModelProvider()
+                val selectedModel = if (modelProvider == "OLLAMA") {
+                    repository.getOllamaModel()
+                } else {
+                    repository.getSelectedModel()
+                }
                 _state.update { it.copy(selectedModel = selectedModel) }
-                Napier.d("Selected model loaded: $selectedModel")
+                Napier.d("Selected model loaded: $selectedModel (provider: $modelProvider)")
             } catch (e: Exception) {
                 Napier.e("Error loading selected model", e)
             }
@@ -149,12 +157,45 @@ class ChatViewModel(
         }
     }
 
+    private fun loadModelProvider() {
+        viewModelScope.launch {
+            try {
+                val modelProvider = repository.getModelProvider()
+                _state.update { it.copy(modelProvider = modelProvider) }
+                Napier.d("Model provider loaded: $modelProvider")
+
+                // Load Ollama models if Ollama is selected
+                if (modelProvider == "OLLAMA") {
+                    val modelsResult = repository.listOllamaModels()
+                    if (modelsResult.isSuccess) {
+                        val models = modelsResult.getOrThrow()
+                        _state.update { it.copy(ollamaModels = models) }
+                        Napier.d("Ollama models loaded: ${models.size} models")
+                    } else {
+                        Napier.e("Failed to load Ollama models: ${modelsResult.exceptionOrNull()?.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Napier.e("Error loading model provider", e)
+            }
+        }
+    }
+
     private fun selectModel(modelId: String) {
         viewModelScope.launch {
             try {
-                repository.saveSelectedModel(modelId)
+                val modelProvider = _state.value.modelProvider
+
+                if (modelProvider == "OLLAMA") {
+                    // Save as Ollama model
+                    repository.saveOllamaModel(modelId)
+                } else {
+                    // Save as Claude model
+                    repository.saveSelectedModel(modelId)
+                }
+
                 _state.update { it.copy(selectedModel = modelId) }
-                Napier.d("Model selected: $modelId")
+                Napier.d("Model selected: $modelId (provider: $modelProvider)")
             } catch (e: Exception) {
                 Napier.e("Error selecting model", e)
             }
@@ -638,7 +679,10 @@ data class ChatUiState(
     val availableMcpTools: List<McpTool> = emptyList(),
     val isTaskSummaryEnabled: Boolean = false,
     val isRagMode: Boolean = false,
-    val ragDocuments: List<com.claude.chat.data.model.RagDocument> = emptyList()
+    val ragDocuments: List<com.claude.chat.data.model.RagDocument> = emptyList(),
+    // Model Provider
+    val modelProvider: String = "CLAUDE",
+    val ollamaModels: List<String> = emptyList()
 )
 
 /**

@@ -85,6 +85,7 @@ class AppContainer {
     val chatRepository: ChatRepository by lazy {
         ChatRepositoryImpl(
             apiClient = apiClient,
+            ollamaClient = ollamaClient,
             settingsStorage = settingsStorage,
             mcpManager = mcpManager,
             ragService = ragService,

@@ -38,8 +38,13 @@ class SettingsStorage(
         private const val KEY_RAG_INDEX = "rag_index"
         private const val KEY_RAG_RERANKING_ENABLED = "rag_reranking_enabled"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_MODEL_PROVIDER = "model_provider"
+        private const val KEY_OLLAMA_BASE_URL = "ollama_base_url"
+        private const val KEY_OLLAMA_MODEL = "ollama_model"
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
         private const val DEFAULT_TEMPERATURE = 1.0
+        private const val DEFAULT_OLLAMA_URL = "http://localhost:11434"
+        private const val DEFAULT_OLLAMA_MODEL = "llama2"
     }
 
     fun getApiKey(): String? {
@@ -243,6 +248,33 @@ class SettingsStorage(
     fun saveThemeMode(themeMode: String) {
         settings.putString(KEY_THEME_MODE, themeMode)
         Napier.d("Theme mode set to: $themeMode")
+    }
+
+    fun getModelProvider(): String {
+        return settings.getString(KEY_MODEL_PROVIDER, "CLAUDE")
+    }
+
+    fun saveModelProvider(provider: String) {
+        settings.putString(KEY_MODEL_PROVIDER, provider)
+        Napier.d("Model provider set to: $provider")
+    }
+
+    fun getOllamaBaseUrl(): String {
+        return settings.getString(KEY_OLLAMA_BASE_URL, DEFAULT_OLLAMA_URL)
+    }
+
+    fun saveOllamaBaseUrl(url: String) {
+        settings.putString(KEY_OLLAMA_BASE_URL, url)
+        Napier.d("Ollama base URL set to: $url")
+    }
+
+    fun getOllamaModel(): String {
+        return settings.getString(KEY_OLLAMA_MODEL, DEFAULT_OLLAMA_MODEL)
+    }
+
+    fun saveOllamaModel(model: String) {
+        settings.putString(KEY_OLLAMA_MODEL, model)
+        Napier.d("Ollama model set to: $model")
     }
 }
 

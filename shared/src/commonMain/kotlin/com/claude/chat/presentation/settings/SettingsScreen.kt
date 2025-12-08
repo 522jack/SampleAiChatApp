@@ -5,7 +5,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -126,6 +128,173 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            // Model Provider Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Model Provider",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Text(
+                        "Choose between cloud-based Claude or local Ollama models",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Provider selection
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = state.modelProvider == "CLAUDE",
+                            onClick = { onIntent(SettingsIntent.UpdateModelProvider("CLAUDE")) },
+                            label = { Text("Claude (Cloud)") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = state.modelProvider == "OLLAMA",
+                            onClick = { onIntent(SettingsIntent.UpdateModelProvider("OLLAMA")) },
+                            label = { Text("Ollama (Local)") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    // Ollama settings (show only when OLLAMA is selected)
+                    if (state.modelProvider == "OLLAMA") {
+                        HorizontalDivider()
+
+                        // Ollama status
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (state.ollamaHealthy)
+                                    Icons.Default.CheckCircle
+                                else
+                                    Icons.Default.Error,
+                                contentDescription = if (state.ollamaHealthy) "Connected" else "Disconnected",
+                                tint = if (state.ollamaHealthy)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                if (state.ollamaHealthy)
+                                    "Ollama is running"
+                                else
+                                    "Ollama is not available. Please start Ollama.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (state.ollamaHealthy)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        // Base URL
+                        OutlinedTextField(
+                            value = state.ollamaBaseUrl,
+                            onValueChange = { onIntent(SettingsIntent.UpdateOllamaBaseUrl(it)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Ollama Base URL") },
+                            placeholder = { Text("http://localhost:11434") },
+                            singleLine = true
+                        )
+
+                        // Model selection
+                        if (state.availableOllamaModels.isNotEmpty()) {
+                            var expanded by remember { mutableStateOf(false) }
+
+                            ExposedDropdownMenuBox(
+                                expanded = expanded,
+                                onExpandedChange = { expanded = !expanded }
+                            ) {
+                                OutlinedTextField(
+                                    value = state.ollamaModel,
+                                    onValueChange = { },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .menuAnchor(),
+                                    label = { Text("Model") },
+                                    readOnly = true,
+                                    trailingIcon = {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                                    }
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = expanded,
+                                    onDismissRequest = { expanded = false }
+                                ) {
+                                    state.availableOllamaModels.forEach { model ->
+                                        DropdownMenuItem(
+                                            text = { Text(model) },
+                                            onClick = {
+                                                onIntent(SettingsIntent.UpdateOllamaModel(model))
+                                                expanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = state.ollamaModel,
+                                onValueChange = { onIntent(SettingsIntent.UpdateOllamaModel(it)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Model") },
+                                placeholder = { Text("llama2, mistral, etc.") },
+                                singleLine = true
+                            )
+
+                            if (!state.ollamaHealthy) {
+                                Text(
+                                    "Manual entry mode. Start Ollama to see available models.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Refresh models button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { onIntent(SettingsIntent.CheckOllamaHealth) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Check Status")
+                            }
+
+                            Button(
+                                onClick = { onIntent(SettingsIntent.RefreshOllamaModels) },
+                                modifier = Modifier.weight(1f),
+                                enabled = state.ollamaHealthy
+                            ) {
+                                Text("Refresh Models")
+                            }
+                        }
+
+                        // Help text
+                        Text(
+                            "Install Ollama from ollama.com and run 'ollama pull llama2' to get started.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 

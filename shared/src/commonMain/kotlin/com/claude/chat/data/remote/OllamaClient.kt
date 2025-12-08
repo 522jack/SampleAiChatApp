@@ -5,12 +5,17 @@ import com.claude.chat.data.model.OllamaEmbeddingResponse
 import com.claude.chat.data.model.OllamaGenerateRequest
 import com.claude.chat.data.model.OllamaGenerateResponse
 import com.claude.chat.data.model.OllamaOptions
+import com.claude.chat.data.model.OllamaChatRequest
+import com.claude.chat.data.model.OllamaChatResponse
+import com.claude.chat.data.model.OllamaChatMessage
+import com.claude.chat.data.model.OllamaModelsResponse
 import io.github.aakira.napier.Napier
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.serialization.json.Json
 
 /**
  * Client for interacting with Ollama API
@@ -19,6 +24,10 @@ class OllamaClient(
     private val httpClient: HttpClient,
     private val baseUrl: String = "http://localhost:11434"
 ) {
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
     /**
      * Generate embeddings for a given text using Ollama
      */
@@ -152,6 +161,122 @@ class OllamaClient(
         } catch (e: Exception) {
             Napier.e("Error generating completion", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Send chat message using Ollama Chat API (streaming)
+     */
+    suspend fun sendChatMessage(
+        messages: List<OllamaChatMessage>,
+        model: String = "llama2",
+        options: OllamaOptions? = null
+    ): Result<OllamaChatResponse> {
+        return try {
+            Napier.d("Sending chat message with model $model")
+
+            val request = OllamaChatRequest(
+                model = model,
+                messages = messages,
+                stream = true, // Enable streaming to get NDJSON response
+                options = options
+            )
+
+            val response: HttpResponse = httpClient.post("$baseUrl/api/chat") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+
+            if (response.status.isSuccess()) {
+                // Read the entire body as text (NDJSON format)
+                val bodyText = response.bodyAsText()
+
+                // Split by newlines and parse all JSON objects
+                val lines = bodyText.trim().split("\n").filter { it.isNotBlank() }
+
+                if (lines.isEmpty()) {
+                    return Result.failure(Exception("Empty response from Ollama"))
+                }
+
+                // Collect all content from streaming chunks
+                val fullContent = StringBuilder()
+                var lastResponse: OllamaChatResponse? = null
+
+                lines.forEach { line ->
+                    try {
+                        val chunk = json.decodeFromString<OllamaChatResponse>(line)
+                        // Accumulate content from each chunk
+                        if (chunk.message.content.isNotEmpty()) {
+                            fullContent.append(chunk.message.content)
+                        }
+                        // Keep the last response for metadata
+                        if (chunk.done) {
+                            lastResponse = chunk
+                        }
+                    } catch (e: Exception) {
+                        Napier.w("Failed to parse NDJSON line: $line", e)
+                    }
+                }
+
+                // Use the last response but with full accumulated content
+                val finalResponse = lastResponse ?: json.decodeFromString(lines.last())
+                val responseWithFullContent = finalResponse.copy(
+                    message = finalResponse.message.copy(content = fullContent.toString())
+                )
+
+                Napier.d("Successfully received chat response with ${fullContent.length} characters")
+                Result.success(responseWithFullContent)
+            } else {
+                val error = "Ollama chat request failed: ${response.status}"
+                Napier.e(error)
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            Napier.e("Error sending chat message", e)
+            val errorMessage = when {
+                e.message?.contains("Connection refused", ignoreCase = true) == true ->
+                    "Cannot connect to Ollama at $baseUrl. Please start Ollama and ensure the '$model' model is installed."
+                e.message?.contains("ConnectException", ignoreCase = true) == true ->
+                    "Cannot connect to Ollama at $baseUrl. Please start Ollama and ensure the '$model' model is installed."
+                e.message?.contains("timeout", ignoreCase = true) == true ->
+                    "Ollama connection timeout. Please check if Ollama is running."
+                else -> "Ollama error: ${e.message ?: "Unknown error"}"
+            }
+            Result.failure(Exception(errorMessage, e))
+        }
+    }
+
+    /**
+     * List available Ollama models
+     */
+    suspend fun listModels(): Result<List<String>> {
+        return try {
+            Napier.d("Fetching list of available Ollama models")
+
+            val response: HttpResponse = httpClient.get("$baseUrl/api/tags")
+
+            if (response.status.isSuccess()) {
+                val modelsResponse = response.body<OllamaModelsResponse>()
+                val modelNames = modelsResponse.models.map { it.name }
+                Napier.d("Found ${modelNames.size} models: $modelNames")
+                Result.success(modelNames)
+            } else {
+                val error = "Ollama list models request failed: ${response.status}"
+                Napier.e(error)
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            Napier.e("Error listing models", e)
+            val errorMessage = when {
+                e.message?.contains("Connection refused", ignoreCase = true) == true ->
+                    "Cannot connect to Ollama at $baseUrl. Please start Ollama."
+                e.message?.contains("ConnectException", ignoreCase = true) == true ->
+                    "Cannot connect to Ollama at $baseUrl. Please start Ollama."
+                e.message?.contains("timeout", ignoreCase = true) == true ->
+                    "Ollama connection timeout. Please check if Ollama is running."
+                else -> "Ollama error: ${e.message ?: "Unknown error"}"
+            }
+            Result.failure(Exception(errorMessage, e))
         }
     }
 

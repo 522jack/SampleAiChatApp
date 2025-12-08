@@ -79,7 +79,9 @@ fun ChatScreen(
                             selectedModel = state.selectedModel,
                             onModelSelected = { modelId ->
                                 onIntent(ChatIntent.SelectModel(modelId))
-                            }
+                            },
+                            modelProvider = state.modelProvider,
+                            ollamaModels = state.ollamaModels
                         )
                     } else {
                         // Show indicator that comparison mode is active
@@ -102,8 +104,16 @@ fun ChatScreen(
             )
         },
         bottomBar = {
+            val isEnabled = if (state.modelProvider == "OLLAMA") {
+                // For Ollama, check if models are available and not loading
+                state.ollamaModels.isNotEmpty() && !state.isLoading
+            } else {
+                // For Claude, check API key
+                state.isApiKeyConfigured && !state.isLoading
+            }
+
             ChatInputBar(
-                enabled = state.isApiKeyConfigured && !state.isLoading,
+                enabled = isEnabled,
                 onSendMessage = { text ->
                     onIntent(ChatIntent.SendMessage(text))
                 }
@@ -115,8 +125,8 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (!state.isApiKeyConfigured) {
-                // Show API key setup message
+            if (!state.isApiKeyConfigured && state.modelProvider == "CLAUDE") {
+                // Show API key setup message for Claude
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center

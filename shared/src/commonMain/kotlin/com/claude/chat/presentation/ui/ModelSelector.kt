@@ -14,12 +14,18 @@ import com.claude.chat.data.model.ClaudeModel
 fun ModelSelector(
     selectedModel: String,
     onModelSelected: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    modelProvider: String = "CLAUDE",
+    ollamaModels: List<String> = emptyList()
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    val currentModel = ClaudeModel.fromModelId(selectedModel)
-    val models = ClaudeModel.entries
+    // Determine display name based on provider
+    val displayName = if (modelProvider == "OLLAMA") {
+        selectedModel.ifEmpty { "Select Model" }
+    } else {
+        ClaudeModel.fromModelId(selectedModel).displayName
+    }
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -31,7 +37,7 @@ fun ModelSelector(
             modifier = Modifier.menuAnchor()
         ) {
             Text(
-                text = currentModel.displayName,
+                text = displayName,
                 style = MaterialTheme.typography.labelMedium
             )
             Icon(
@@ -44,30 +50,68 @@ fun ModelSelector(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            models.forEach { model ->
-                DropdownMenuItem(
-                    text = {
-                        Column {
+            if (modelProvider == "OLLAMA") {
+                // Show Ollama models
+                if (ollamaModels.isEmpty()) {
+                    DropdownMenuItem(
+                        text = {
                             Text(
-                                text = model.displayName,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                text = model.description,
+                                text = "No models available",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
-                    },
-                    onClick = {
-                        onModelSelected(model.modelId)
-                        expanded = false
-                    },
-                    contentPadding = PaddingValues(
-                        horizontal = 16.dp,
-                        vertical = 8.dp
+                        },
+                        onClick = { },
+                        enabled = false
                     )
-                )
+                } else {
+                    ollamaModels.forEach { model ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = model,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            },
+                            onClick = {
+                                onModelSelected(model)
+                                expanded = false
+                            },
+                            contentPadding = PaddingValues(
+                                horizontal = 16.dp,
+                                vertical = 8.dp
+                            )
+                        )
+                    }
+                }
+            } else {
+                // Show Claude models
+                val models = ClaudeModel.entries
+                models.forEach { model ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(
+                                    text = model.displayName,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = model.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        onClick = {
+                            onModelSelected(model.modelId)
+                            expanded = false
+                        },
+                        contentPadding = PaddingValues(
+                            horizontal = 16.dp,
+                            vertical = 8.dp
+                        )
+                    )
+                }
             }
         }
     }
