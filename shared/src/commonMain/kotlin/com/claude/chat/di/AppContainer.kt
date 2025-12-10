@@ -45,17 +45,48 @@ class AppContainer {
         )
     }
 
-    val ollamaClient by lazy {
-        OllamaClient(httpClient)
+    private var _ollamaClient: OllamaClient? = null
+
+    val ollamaClient: OllamaClient
+        get() {
+            if (_ollamaClient == null) {
+                _ollamaClient = createOllamaClient()
+            }
+            return _ollamaClient!!
+        }
+
+    private fun createOllamaClient(): OllamaClient {
+        return OllamaClient(
+            httpClient = httpClient,
+            baseUrl = settingsStorage.getOllamaBaseUrl()
+        )
+    }
+
+    /**
+     * Recreate OllamaClient with updated base URL from settings
+     * Call this after changing Ollama base URL to apply changes immediately
+     */
+    fun recreateOllamaClient() {
+        Napier.i("Recreating OllamaClient with URL: ${settingsStorage.getOllamaBaseUrl()}")
+        _ollamaClient = createOllamaClient()
+        // Also recreate RAG service since it depends on OllamaClient
+        _ragService = RagService(_ollamaClient!!, textChunker)
+        Napier.i("OllamaClient and RagService recreated successfully")
     }
 
     private val textChunker by lazy {
         TextChunker()
     }
 
-    val ragService by lazy {
-        RagService(ollamaClient, textChunker)
-    }
+    private var _ragService: RagService? = null
+
+    val ragService: RagService
+        get() {
+            if (_ragService == null) {
+                _ragService = RagService(ollamaClient, textChunker)
+            }
+            return _ragService!!
+        }
 
     val supportApiClient by lazy {
         SupportApiClient(
@@ -85,7 +116,7 @@ class AppContainer {
     val chatRepository: ChatRepository by lazy {
         ChatRepositoryImpl(
             apiClient = apiClient,
-            ollamaClient = ollamaClient,
+            getOllamaClient = { ollamaClient }, // Pass lambda that returns current ollamaClient
             settingsStorage = settingsStorage,
             mcpManager = mcpManager,
             ragService = ragService,

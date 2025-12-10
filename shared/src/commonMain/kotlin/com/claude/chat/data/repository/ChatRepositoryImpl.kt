@@ -45,7 +45,7 @@ import kotlin.uuid.Uuid
 @OptIn(ExperimentalUuidApi::class)
 class ChatRepositoryImpl(
     private val apiClient: ClaudeApiClient,
-    private val ollamaClient: OllamaClient,
+    private val getOllamaClient: () -> OllamaClient,
     private val settingsStorage: SettingsStorage,
     private val mcpManager: McpManager,
     private val ragService: RagService,
@@ -693,11 +693,11 @@ class ChatRepositoryImpl(
     }
 
     override suspend fun listOllamaModels(): Result<List<String>> {
-        return ollamaClient.listModels()
+        return getOllamaClient().listModels()
     }
 
     override suspend fun checkOllamaHealth(): Boolean {
-        return ollamaClient.checkHealth()
+        return getOllamaClient().checkHealth()
     }
 
     /**
@@ -716,7 +716,7 @@ class ChatRepositoryImpl(
 
             Napier.d("Sending message to Ollama with model $ollamaModel")
 
-            val result = ollamaClient.sendChatMessage(
+            val result = getOllamaClient().sendChatMessage(
                 messages = ollamaMessages,
                 model = ollamaModel,
                 options = options

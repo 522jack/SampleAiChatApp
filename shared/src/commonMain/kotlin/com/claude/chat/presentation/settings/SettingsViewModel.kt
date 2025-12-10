@@ -81,7 +81,8 @@ class SettingsViewModel(
 
             // Model Provider Management
             is SettingsIntent.UpdateModelProvider -> updateModelProvider(intent.provider)
-            is SettingsIntent.UpdateOllamaBaseUrl -> updateOllamaBaseUrl(intent.url)
+            is SettingsIntent.UpdateOllamaBaseUrlInput -> updateOllamaBaseUrlInput(intent.url)
+            is SettingsIntent.SaveOllamaBaseUrl -> saveOllamaBaseUrl(intent.url)
             is SettingsIntent.UpdateOllamaModel -> updateOllamaModel(intent.model)
             is SettingsIntent.RefreshOllamaModels -> refreshOllamaModels()
             is SettingsIntent.CheckOllamaHealth -> checkOllamaHealth()
@@ -512,11 +513,23 @@ class SettingsViewModel(
         }
     }
 
-    private fun updateOllamaBaseUrl(url: String) {
+    private fun updateOllamaBaseUrlInput(url: String) {
+        _state.update { it.copy(ollamaBaseUrl = url) }
+    }
+
+    private fun saveOllamaBaseUrl(url: String) {
         viewModelScope.launch {
             repository.saveOllamaBaseUrl(url)
-            _state.update { it.copy(ollamaBaseUrl = url) }
-            Napier.d("Ollama base URL updated to: $url")
+            Napier.d("Ollama base URL saved: $url")
+
+            // Recreate OllamaClient with new URL to apply changes immediately
+            appContainer.recreateOllamaClient()
+
+            // Refresh models with new URL
+            refreshOllamaModels()
+            checkOllamaHealth()
+
+            _state.update { it.copy(saveSuccess = true) }
         }
     }
 
@@ -653,7 +666,8 @@ sealed class SettingsIntent {
     data class UpdateThemeMode(val themeMode: String) : SettingsIntent()
     // Model Provider management
     data class UpdateModelProvider(val provider: String) : SettingsIntent()
-    data class UpdateOllamaBaseUrl(val url: String) : SettingsIntent()
+    data class UpdateOllamaBaseUrlInput(val url: String) : SettingsIntent()
+    data class SaveOllamaBaseUrl(val url: String) : SettingsIntent()
     data class UpdateOllamaModel(val model: String) : SettingsIntent()
     data object RefreshOllamaModels : SettingsIntent()
     data object CheckOllamaHealth : SettingsIntent()

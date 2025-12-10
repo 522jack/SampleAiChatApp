@@ -206,12 +206,21 @@ fun SettingsScreen(
                         // Base URL
                         OutlinedTextField(
                             value = state.ollamaBaseUrl,
-                            onValueChange = { onIntent(SettingsIntent.UpdateOllamaBaseUrl(it)) },
+                            onValueChange = { onIntent(SettingsIntent.UpdateOllamaBaseUrlInput(it)) },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Ollama Base URL") },
                             placeholder = { Text("http://localhost:11434") },
                             singleLine = true
                         )
+
+                        // Apply URL button
+                        Button(
+                            onClick = { onIntent(SettingsIntent.SaveOllamaBaseUrl(state.ollamaBaseUrl)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = state.ollamaBaseUrl.isNotBlank()
+                        ) {
+                            Text("Apply URL")
+                        }
 
                         // Model selection
                         if (state.availableOllamaModels.isNotEmpty()) {
