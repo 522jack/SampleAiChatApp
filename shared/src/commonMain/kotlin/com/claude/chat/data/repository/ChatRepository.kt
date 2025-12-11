@@ -266,4 +266,118 @@ interface ChatRepository {
      * Check if Ollama is available
      */
     suspend fun checkOllamaHealth(): Boolean
+
+    // ============================================================================
+    // Ollama Configuration Methods
+    // ============================================================================
+
+    /**
+     * Get Ollama temperature setting
+     */
+    suspend fun getOllamaTemperature(): Double?
+
+    /**
+     * Save Ollama temperature setting
+     */
+    suspend fun saveOllamaTemperature(temperature: Double)
+
+    /**
+     * Get Ollama Top P setting
+     */
+    suspend fun getOllamaTopP(): Double?
+
+    /**
+     * Save Ollama Top P setting
+     */
+    suspend fun saveOllamaTopP(topP: Double)
+
+    /**
+     * Get Ollama Top K setting
+     */
+    suspend fun getOllamaTopK(): Int?
+
+    /**
+     * Save Ollama Top K setting
+     */
+    suspend fun saveOllamaTopK(topK: Int)
+
+    /**
+     * Get Ollama context window size
+     */
+    suspend fun getOllamaNumCtx(): Int?
+
+    /**
+     * Save Ollama context window size
+     */
+    suspend fun saveOllamaNumCtx(numCtx: Int)
+
+    /**
+     * Get Ollama max tokens to predict
+     */
+    suspend fun getOllamaNumPredict(): Int?
+
+    /**
+     * Save Ollama max tokens to predict
+     */
+    suspend fun saveOllamaNumPredict(numPredict: Int)
+
+    /**
+     * Get Ollama repeat penalty
+     */
+    suspend fun getOllamaRepeatPenalty(): Double?
+
+    /**
+     * Save Ollama repeat penalty
+     */
+    suspend fun saveOllamaRepeatPenalty(repeatPenalty: Double)
+
+    /**
+     * Get Ollama repeat last N
+     */
+    suspend fun getOllamaRepeatLastN(): Int?
+
+    /**
+     * Save Ollama repeat last N
+     */
+    suspend fun saveOllamaRepeatLastN(repeatLastN: Int)
+
+    /**
+     * Get Ollama seed
+     */
+    suspend fun getOllamaSeed(): Int?
+
+    /**
+     * Save Ollama seed
+     */
+    suspend fun saveOllamaSeed(seed: Int?)
+
+    /**
+     * Get Ollama stop sequences
+     */
+    suspend fun getOllamaStopSequences(): List<String>?
+
+    /**
+     * Save Ollama stop sequences
+     */
+    suspend fun saveOllamaStopSequences(sequences: List<String>?)
+
+    /**
+     * Get Ollama number of threads
+     */
+    suspend fun getOllamaNumThread(): Int?
+
+    /**
+     * Save Ollama number of threads
+     */
+    suspend fun saveOllamaNumThread(numThread: Int?)
+
+    /**
+     * Get Ollama system prompt template
+     */
+    suspend fun getOllamaSystemPrompt(): String?
+
+    /**
+     * Save Ollama system prompt template
+     */
+    suspend fun saveOllamaSystemPrompt(prompt: String)
 }

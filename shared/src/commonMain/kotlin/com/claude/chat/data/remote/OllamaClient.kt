@@ -43,6 +43,9 @@ class OllamaClient(
                 prompt = text
             )
 
+            // Log request body
+            Napier.d("Ollama Embedding Request: ${json.encodeToString(OllamaEmbeddingRequest.serializer(), request)}")
+
             val response: HttpResponse = httpClient.post("$baseUrl/api/embeddings") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
@@ -50,12 +53,13 @@ class OllamaClient(
 
             if (response.status.isSuccess()) {
                 val embeddingResponse = response.body<OllamaEmbeddingResponse>()
+                Napier.d("Ollama Embedding Response: dimension=${embeddingResponse.embedding.size}")
                 Napier.d("Successfully generated embedding of dimension ${embeddingResponse.embedding.size}")
                 Result.success(embeddingResponse.embedding)
             } else {
-                val error = "Ollama embedding request failed: ${response.status}"
-                Napier.e(error)
-                Result.failure(Exception(error))
+                val responseBody = response.bodyAsText()
+                Napier.e("Ollama embedding request failed: ${response.status}, body: $responseBody")
+                Result.failure(Exception("Ollama embedding request failed: ${response.status}"))
             }
         } catch (e: Exception) {
             Napier.e("Error generating embedding", e)
@@ -120,6 +124,9 @@ class OllamaClient(
                 options = options
             )
 
+            // Log request body
+            Napier.d("Ollama Generate Request: ${json.encodeToString(OllamaGenerateRequest.serializer(), request)}")
+
             val response: HttpResponse = httpClient.post("$baseUrl/api/generate") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
@@ -128,6 +135,7 @@ class OllamaClient(
             if (response.status.isSuccess()) {
                 // Get raw response text for debugging
                 val rawResponse = response.bodyAsText()
+                Napier.d("Ollama Generate Raw Response (first 500 chars): ${rawResponse.take(500)}")
 
                 // Try to parse the response - Ollama may return NDJSON (newline-delimited JSON)
                 try {
@@ -146,7 +154,7 @@ class OllamaClient(
                     }
 
                     val finalText = fullResponse.toString()
-                    Napier.d("Successfully generated completion: '$finalText' (length: ${finalText.length})")
+                    Napier.d("Ollama Generate Response: text='$finalText' (length: ${finalText.length})")
                     Result.success(finalText)
                 } catch (e: Exception) {
                     Napier.e("Failed to parse Ollama response: ${e.message}")
@@ -154,9 +162,9 @@ class OllamaClient(
                     Result.failure(Exception("Failed to parse Ollama response: ${e.message}"))
                 }
             } else {
-                val error = "Ollama generate request failed: ${response.status}"
-                Napier.e(error)
-                Result.failure(Exception(error))
+                val responseBody = response.bodyAsText()
+                Napier.e("Ollama generate request failed: ${response.status}, body: $responseBody")
+                Result.failure(Exception("Ollama generate request failed: ${response.status}"))
             }
         } catch (e: Exception) {
             Napier.e("Error generating completion", e)
@@ -182,6 +190,26 @@ class OllamaClient(
                 options = options
             )
 
+            // Log request body with detailed information
+            Napier.d("═══════════════════════════════════════════════════════════")
+            Napier.d("Ollama Chat Request:")
+            Napier.d("  Model: $model")
+            Napier.d("  Messages count: ${messages.size}")
+            messages.forEachIndexed { index, msg ->
+                Napier.d("  Message $index [${msg.role}]: ${msg.content.take(200)}${if (msg.content.length > 200) "..." else ""}")
+            }
+            options?.let {
+                Napier.d("  Options:")
+                it.temperature?.let { temp -> Napier.d("    Temperature: $temp") }
+                it.topP?.let { p -> Napier.d("    Top P: $p") }
+                it.topK?.let { k -> Napier.d("    Top K: $k") }
+                it.numPredict?.let { num -> Napier.d("    Max tokens: $num") }
+                it.numCtx?.let { ctx -> Napier.d("    Context window: $ctx") }
+                it.repeatPenalty?.let { penalty -> Napier.d("    Repeat penalty: $penalty") }
+            }
+            Napier.d("  Full Request JSON: ${json.encodeToString(OllamaChatRequest.serializer(), request)}")
+            Napier.d("═══════════════════════════════════════════════════════════")
+
             val response: HttpResponse = httpClient.post("$baseUrl/api/chat") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
@@ -190,6 +218,7 @@ class OllamaClient(
             if (response.status.isSuccess()) {
                 // Read the entire body as text (NDJSON format)
                 val bodyText = response.bodyAsText()
+                Napier.d("Ollama Chat Raw Response (first 1000 chars): ${bodyText.take(1000)}")
 
                 // Split by newlines and parse all JSON objects
                 val lines = bodyText.trim().split("\n").filter { it.isNotBlank() }
@@ -224,12 +253,23 @@ class OllamaClient(
                     message = finalResponse.message.copy(content = fullContent.toString())
                 )
 
-                Napier.d("Successfully received chat response with ${fullContent.length} characters")
+                // Log detailed response
+                Napier.d("═══════════════════════════════════════════════════════════")
+                Napier.d("Ollama Chat Response:")
+                Napier.d("  Content: ${fullContent.toString()}")
+                Napier.d("  Content length: ${fullContent.length} characters")
+                responseWithFullContent.promptEvalCount?.let { Napier.d("  Prompt tokens: $it") }
+                responseWithFullContent.evalCount?.let { Napier.d("  Completion tokens: $it") }
+                responseWithFullContent.totalDuration?.let { Napier.d("  Total duration: ${it / 1_000_000}ms") }
+                responseWithFullContent.promptEvalDuration?.let { Napier.d("  Prompt eval duration: ${it / 1_000_000}ms") }
+                responseWithFullContent.evalDuration?.let { Napier.d("  Eval duration: ${it / 1_000_000}ms") }
+                Napier.d("═══════════════════════════════════════════════════════════")
+
                 Result.success(responseWithFullContent)
             } else {
-                val error = "Ollama chat request failed: ${response.status}"
-                Napier.e(error)
-                Result.failure(Exception(error))
+                val responseBody = response.bodyAsText()
+                Napier.e("Ollama chat request failed: ${response.status}, body: $responseBody")
+                Result.failure(Exception("Ollama chat request failed: ${response.status}"))
             }
         } catch (e: Exception) {
             Napier.e("Error sending chat message", e)

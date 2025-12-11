@@ -41,6 +41,20 @@ class SettingsStorage(
         private const val KEY_MODEL_PROVIDER = "model_provider"
         private const val KEY_OLLAMA_BASE_URL = "ollama_base_url"
         private const val KEY_OLLAMA_MODEL = "ollama_model"
+
+        // Ollama configuration keys
+        private const val KEY_OLLAMA_TEMPERATURE = "ollama_temperature"
+        private const val KEY_OLLAMA_TOP_P = "ollama_top_p"
+        private const val KEY_OLLAMA_TOP_K = "ollama_top_k"
+        private const val KEY_OLLAMA_NUM_CTX = "ollama_num_ctx"
+        private const val KEY_OLLAMA_NUM_PREDICT = "ollama_num_predict"
+        private const val KEY_OLLAMA_REPEAT_PENALTY = "ollama_repeat_penalty"
+        private const val KEY_OLLAMA_REPEAT_LAST_N = "ollama_repeat_last_n"
+        private const val KEY_OLLAMA_SEED = "ollama_seed"
+        private const val KEY_OLLAMA_STOP_SEQUENCES = "ollama_stop_sequences"
+        private const val KEY_OLLAMA_NUM_THREAD = "ollama_num_thread"
+        private const val KEY_OLLAMA_SYSTEM_PROMPT = "ollama_system_prompt"
+
         private const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
         private const val DEFAULT_TEMPERATURE = 1.0
         private const val DEFAULT_OLLAMA_URL = "http://localhost:11434"
@@ -275,6 +289,135 @@ class SettingsStorage(
     fun saveOllamaModel(model: String) {
         settings.putString(KEY_OLLAMA_MODEL, model)
         Napier.d("Ollama model set to: $model")
+    }
+
+    // ============================================================================
+    // Ollama Configuration Methods
+    // ============================================================================
+
+    fun getOllamaTemperature(): Double? {
+        return settings.getDoubleOrNull(KEY_OLLAMA_TEMPERATURE)
+    }
+
+    fun saveOllamaTemperature(temperature: Double) {
+        settings.putDouble(KEY_OLLAMA_TEMPERATURE, temperature)
+        Napier.d("Ollama temperature set to: $temperature")
+    }
+
+    fun getOllamaTopP(): Double? {
+        return settings.getDoubleOrNull(KEY_OLLAMA_TOP_P)
+    }
+
+    fun saveOllamaTopP(topP: Double) {
+        settings.putDouble(KEY_OLLAMA_TOP_P, topP)
+        Napier.d("Ollama Top P set to: $topP")
+    }
+
+    fun getOllamaTopK(): Int? {
+        return settings.getIntOrNull(KEY_OLLAMA_TOP_K)
+    }
+
+    fun saveOllamaTopK(topK: Int) {
+        settings.putInt(KEY_OLLAMA_TOP_K, topK)
+        Napier.d("Ollama Top K set to: $topK")
+    }
+
+    fun getOllamaNumCtx(): Int? {
+        return settings.getIntOrNull(KEY_OLLAMA_NUM_CTX)
+    }
+
+    fun saveOllamaNumCtx(numCtx: Int) {
+        settings.putInt(KEY_OLLAMA_NUM_CTX, numCtx)
+        Napier.d("Ollama context window set to: $numCtx")
+    }
+
+    fun getOllamaNumPredict(): Int? {
+        return settings.getIntOrNull(KEY_OLLAMA_NUM_PREDICT)
+    }
+
+    fun saveOllamaNumPredict(numPredict: Int) {
+        settings.putInt(KEY_OLLAMA_NUM_PREDICT, numPredict)
+        Napier.d("Ollama max tokens set to: $numPredict")
+    }
+
+    fun getOllamaRepeatPenalty(): Double? {
+        return settings.getDoubleOrNull(KEY_OLLAMA_REPEAT_PENALTY)
+    }
+
+    fun saveOllamaRepeatPenalty(repeatPenalty: Double) {
+        settings.putDouble(KEY_OLLAMA_REPEAT_PENALTY, repeatPenalty)
+        Napier.d("Ollama repeat penalty set to: $repeatPenalty")
+    }
+
+    fun getOllamaRepeatLastN(): Int? {
+        return settings.getIntOrNull(KEY_OLLAMA_REPEAT_LAST_N)
+    }
+
+    fun saveOllamaRepeatLastN(repeatLastN: Int) {
+        settings.putInt(KEY_OLLAMA_REPEAT_LAST_N, repeatLastN)
+        Napier.d("Ollama repeat last N set to: $repeatLastN")
+    }
+
+    fun getOllamaSeed(): Int? {
+        return settings.getIntOrNull(KEY_OLLAMA_SEED)
+    }
+
+    fun saveOllamaSeed(seed: Int?) {
+        if (seed != null) {
+            settings.putInt(KEY_OLLAMA_SEED, seed)
+            Napier.d("Ollama seed set to: $seed")
+        } else {
+            settings.remove(KEY_OLLAMA_SEED)
+            Napier.d("Ollama seed cleared (random)")
+        }
+    }
+
+    fun getOllamaStopSequences(): List<String>? {
+        val sequencesJson = settings.getStringOrNull(KEY_OLLAMA_STOP_SEQUENCES) ?: return null
+        return try {
+            json.decodeFromString<List<String>>(sequencesJson)
+        } catch (e: Exception) {
+            Napier.e("Error loading Ollama stop sequences", e)
+            null
+        }
+    }
+
+    fun saveOllamaStopSequences(sequences: List<String>?) {
+        if (sequences != null && sequences.isNotEmpty()) {
+            try {
+                val sequencesJson = json.encodeToString(sequences)
+                settings.putString(KEY_OLLAMA_STOP_SEQUENCES, sequencesJson)
+                Napier.d("Ollama stop sequences saved: $sequences")
+            } catch (e: Exception) {
+                Napier.e("Error saving Ollama stop sequences", e)
+            }
+        } else {
+            settings.remove(KEY_OLLAMA_STOP_SEQUENCES)
+            Napier.d("Ollama stop sequences cleared")
+        }
+    }
+
+    fun getOllamaNumThread(): Int? {
+        return settings.getIntOrNull(KEY_OLLAMA_NUM_THREAD)
+    }
+
+    fun saveOllamaNumThread(numThread: Int?) {
+        if (numThread != null) {
+            settings.putInt(KEY_OLLAMA_NUM_THREAD, numThread)
+            Napier.d("Ollama number of threads set to: $numThread")
+        } else {
+            settings.remove(KEY_OLLAMA_NUM_THREAD)
+            Napier.d("Ollama number of threads cleared (auto)")
+        }
+    }
+
+    fun getOllamaSystemPrompt(): String? {
+        return settings.getStringOrNull(KEY_OLLAMA_SYSTEM_PROMPT)
+    }
+
+    fun saveOllamaSystemPrompt(prompt: String) {
+        settings.putString(KEY_OLLAMA_SYSTEM_PROMPT, prompt)
+        Napier.d("Ollama system prompt template saved")
     }
 }
 

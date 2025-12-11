@@ -15,6 +15,7 @@ import com.claude.chat.data.remote.ClaudeApiClient
 import com.claude.chat.data.remote.OllamaClient
 import com.claude.chat.data.model.OllamaChatMessage
 import com.claude.chat.data.model.OllamaOptions
+import com.claude.chat.domain.manager.OllamaConfigurationManager
 import com.claude.chat.domain.model.ModelProvider
 import com.claude.chat.domain.model.ClaudePricing
 import com.claude.chat.domain.model.Message
@@ -700,6 +701,98 @@ class ChatRepositoryImpl(
         return getOllamaClient().checkHealth()
     }
 
+    // ============================================================================
+    // Ollama Configuration Methods
+    // ============================================================================
+
+    override suspend fun getOllamaTemperature(): Double? {
+        return settingsStorage.getOllamaTemperature()
+    }
+
+    override suspend fun saveOllamaTemperature(temperature: Double) {
+        settingsStorage.saveOllamaTemperature(temperature)
+    }
+
+    override suspend fun getOllamaTopP(): Double? {
+        return settingsStorage.getOllamaTopP()
+    }
+
+    override suspend fun saveOllamaTopP(topP: Double) {
+        settingsStorage.saveOllamaTopP(topP)
+    }
+
+    override suspend fun getOllamaTopK(): Int? {
+        return settingsStorage.getOllamaTopK()
+    }
+
+    override suspend fun saveOllamaTopK(topK: Int) {
+        settingsStorage.saveOllamaTopK(topK)
+    }
+
+    override suspend fun getOllamaNumCtx(): Int? {
+        return settingsStorage.getOllamaNumCtx()
+    }
+
+    override suspend fun saveOllamaNumCtx(numCtx: Int) {
+        settingsStorage.saveOllamaNumCtx(numCtx)
+    }
+
+    override suspend fun getOllamaNumPredict(): Int? {
+        return settingsStorage.getOllamaNumPredict()
+    }
+
+    override suspend fun saveOllamaNumPredict(numPredict: Int) {
+        settingsStorage.saveOllamaNumPredict(numPredict)
+    }
+
+    override suspend fun getOllamaRepeatPenalty(): Double? {
+        return settingsStorage.getOllamaRepeatPenalty()
+    }
+
+    override suspend fun saveOllamaRepeatPenalty(repeatPenalty: Double) {
+        settingsStorage.saveOllamaRepeatPenalty(repeatPenalty)
+    }
+
+    override suspend fun getOllamaRepeatLastN(): Int? {
+        return settingsStorage.getOllamaRepeatLastN()
+    }
+
+    override suspend fun saveOllamaRepeatLastN(repeatLastN: Int) {
+        settingsStorage.saveOllamaRepeatLastN(repeatLastN)
+    }
+
+    override suspend fun getOllamaSeed(): Int? {
+        return settingsStorage.getOllamaSeed()
+    }
+
+    override suspend fun saveOllamaSeed(seed: Int?) {
+        settingsStorage.saveOllamaSeed(seed)
+    }
+
+    override suspend fun getOllamaStopSequences(): List<String>? {
+        return settingsStorage.getOllamaStopSequences()
+    }
+
+    override suspend fun saveOllamaStopSequences(sequences: List<String>?) {
+        settingsStorage.saveOllamaStopSequences(sequences)
+    }
+
+    override suspend fun getOllamaNumThread(): Int? {
+        return settingsStorage.getOllamaNumThread()
+    }
+
+    override suspend fun saveOllamaNumThread(numThread: Int?) {
+        settingsStorage.saveOllamaNumThread(numThread)
+    }
+
+    override suspend fun getOllamaSystemPrompt(): String? {
+        return settingsStorage.getOllamaSystemPrompt()
+    }
+
+    override suspend fun saveOllamaSystemPrompt(prompt: String) {
+        settingsStorage.saveOllamaSystemPrompt(prompt)
+    }
+
     /**
      * Send message to Ollama and return as Flow
      */
@@ -708,11 +801,24 @@ class ChatRepositoryImpl(
         systemPrompt: String?
     ): Flow<StreamChunk> = flow {
         try {
-            val ollamaMessages = mapToOllamaMessages(messages, systemPrompt)
+            // Use custom Ollama system prompt if available
+            val finalSystemPrompt = getOllamaSystemPrompt() ?: systemPrompt
+            val ollamaMessages = mapToOllamaMessages(messages, finalSystemPrompt)
             val ollamaModel = getOllamaModel()
-            val temperature = getTemperature()
 
-            val options = OllamaOptions(temperature = temperature)
+            // Build OllamaOptions from stored configuration with defaults from manager
+            val options = OllamaOptions(
+                temperature = getOllamaTemperature() ?: OllamaConfigurationManager.DEFAULT_TEMPERATURE,
+                topP = getOllamaTopP() ?: OllamaConfigurationManager.DEFAULT_TOP_P,
+                topK = getOllamaTopK() ?: OllamaConfigurationManager.DEFAULT_TOP_K,
+                numCtx = getOllamaNumCtx() ?: OllamaConfigurationManager.DEFAULT_NUM_CTX,
+                numPredict = getOllamaNumPredict() ?: OllamaConfigurationManager.DEFAULT_NUM_PREDICT,
+                repeatPenalty = getOllamaRepeatPenalty() ?: OllamaConfigurationManager.DEFAULT_REPEAT_PENALTY,
+                repeatLastN = getOllamaRepeatLastN() ?: OllamaConfigurationManager.DEFAULT_REPEAT_LAST_N,
+                seed = getOllamaSeed(),
+                stop = getOllamaStopSequences(),
+                numThread = getOllamaNumThread()
+            )
 
             Napier.d("Sending message to Ollama with model $ollamaModel")
 

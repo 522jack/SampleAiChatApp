@@ -31,10 +31,13 @@ fun App(
         Napier.base(DebugAntilog())
     }
 
-    // Initialize MCP servers for orchestration
+    // Initialize Ollama configuration and MCP servers
     LaunchedEffect(Unit) {
         try {
-            Napier.i("Initializing MCP Tools and external servers...")
+            Napier.i("Initializing Ollama configuration and MCP Tools...")
+
+            // Initialize Ollama configuration for optimal performance
+            appContainer.initializeOllamaConfiguration()
 
             // Enable MCP Tools
             appContainer.chatRepository.saveMcpEnabled(true)
@@ -45,9 +48,9 @@ fun App(
             // Initialize external MCP servers (Weather + Currency)
             appContainer.initializeExternalMcpServers()
 
-            Napier.i("MCP orchestration initialized successfully!")
+            Napier.i("Ollama and MCP orchestration initialized successfully!")
         } catch (e: Exception) {
-            Napier.e("Failed to initialize MCP orchestration", e)
+            Napier.e("Failed to initialize Ollama/MCP orchestration", e)
         }
     }
 

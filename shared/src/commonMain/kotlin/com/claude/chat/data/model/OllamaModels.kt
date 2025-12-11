@@ -22,6 +22,20 @@ data class OllamaEmbeddingResponse(
 
 /**
  * Options for Ollama generate API
+ *
+ * @param temperature Controls randomness (0.0-2.0). Lower = more deterministic, Higher = more creative. Default: 0.8
+ * @param topP Nucleus sampling threshold (0.0-1.0). Only consider tokens with cumulative probability up to topP. Default: 0.9
+ * @param topK Top-K sampling. Only consider top K tokens. Default: 40
+ * @param numPredict Maximum number of tokens to generate. Default: 128, -1 for infinite, -2 for context length
+ * @param numCtx Context window size (number of tokens). Larger = more context but slower. Default: 2048
+ * @param repeatPenalty Penalty for repeating tokens (1.0 = no penalty). Default: 1.1
+ * @param repeatLastN Number of last tokens to consider for repeat penalty. Default: 64, 0 to disable, -1 for num_ctx
+ * @param seed Random seed for reproducible generation. Default: random
+ * @param stop Stop sequences - list of strings where generation should stop
+ * @param numThread Number of threads to use for generation
+ * @param mirostat Mirostat sampling mode (0=disabled, 1=Mirostat, 2=Mirostat 2.0)
+ * @param mirostatTau Target entropy for Mirostat
+ * @param mirostatEta Learning rate for Mirostat
  */
 @Serializable
 data class OllamaOptions(
@@ -31,7 +45,22 @@ data class OllamaOptions(
     @SerialName("top_k")
     val topK: Int? = null,
     @SerialName("num_predict")
-    val numPredict: Int? = null
+    val numPredict: Int? = null,
+    @SerialName("num_ctx")
+    val numCtx: Int? = null,
+    @SerialName("repeat_penalty")
+    val repeatPenalty: Double? = null,
+    @SerialName("repeat_last_n")
+    val repeatLastN: Int? = null,
+    val seed: Int? = null,
+    val stop: List<String>? = null,
+    @SerialName("num_thread")
+    val numThread: Int? = null,
+    val mirostat: Int? = null,
+    @SerialName("mirostat_tau")
+    val mirostatTau: Double? = null,
+    @SerialName("mirostat_eta")
+    val mirostatEta: Double? = null
 )
 
 /**

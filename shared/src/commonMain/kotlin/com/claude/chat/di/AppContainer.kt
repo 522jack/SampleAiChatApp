@@ -13,6 +13,7 @@ import com.claude.chat.data.repository.ChatRepositoryImpl
 import com.claude.chat.domain.manager.ApiConfigurationManager
 import com.claude.chat.domain.manager.ChatHistoryManager
 import com.claude.chat.domain.manager.ModelConfigurationManager
+import com.claude.chat.domain.manager.OllamaConfigurationManager
 import com.claude.chat.domain.manager.RagConfigurationManager
 import com.claude.chat.domain.manager.TechSpecManager
 import com.claude.chat.domain.service.MessageSendingOrchestrator
@@ -160,6 +161,13 @@ class AppContainer {
     }
 
     /**
+     * Manager for Ollama configuration (model parameters, prompts, optimization)
+     */
+    val ollamaConfigurationManager by lazy {
+        OllamaConfigurationManager(chatRepository)
+    }
+
+    /**
      * Manager for Tech Spec mode state machine
      */
     val techSpecManager by lazy {
@@ -178,6 +186,43 @@ class AppContainer {
      */
     val messageSendingOrchestrator by lazy {
         MessageSendingOrchestrator(chatRepository, techSpecManager)
+    }
+
+    /**
+     * Initialize Ollama configuration with optimized settings
+     * Call this after app startup to configure Ollama for best performance
+     */
+    suspend fun initializeOllamaConfiguration() {
+        try {
+            Napier.i("========================================")
+            Napier.i("Initializing Ollama configuration...")
+            Napier.i("========================================")
+
+            val ollamaConfig = ollamaConfigurationManager
+
+            // Configure for Russian language and small models (qwen2.5:0.5b, tinyllama)
+            ollamaConfig.saveTemperature(0.3)        // Low for stability with small models
+            ollamaConfig.saveTopP(0.7)               // Reduced variance
+            ollamaConfig.saveTopK(25)                // Focus on best options
+            ollamaConfig.saveNumCtx(2048)            // Smaller context for 4GB RAM VPS
+            ollamaConfig.saveNumPredict(384)         // Shorter responses
+            ollamaConfig.saveRepeatPenalty(1.4)      // HIGH! Prevent repetitions in small models
+
+            // Set Russian language system prompt
+            ollamaConfig.saveSystemPromptTemplate(
+                """Ты - русскоязычный ассистент.
+                Отвечай ТОЛЬКО на русском языке.
+                Пиши кратко, четко, по делу.
+                Если не знаешь ответ - честно скажи об этом.""".trimIndent()
+            )
+
+            Napier.i("✓ Ollama configuration initialized successfully!")
+            ollamaConfig.logConfiguration()
+            Napier.i("========================================")
+        } catch (e: Exception) {
+            Napier.e("Failed to initialize Ollama configuration", e)
+            e.printStackTrace()
+        }
     }
 
     /**
