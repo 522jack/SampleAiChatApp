@@ -16,11 +16,13 @@ import com.claude.chat.domain.manager.ModelConfigurationManager
 import com.claude.chat.domain.manager.OllamaConfigurationManager
 import com.claude.chat.domain.manager.RagConfigurationManager
 import com.claude.chat.domain.manager.TechSpecManager
+import com.claude.chat.domain.service.DataAnalysisService
 import com.claude.chat.domain.service.MessageSendingOrchestrator
 import com.claude.chat.domain.service.ModelComparisonOrchestrator
 import com.claude.chat.domain.service.RagService
 import com.claude.chat.domain.service.TextChunker
 import com.claude.chat.domain.service.ToolExecutionService
+import com.claude.chat.platform.createFileStorage
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.launch
 
@@ -94,6 +96,30 @@ class AppContainer {
             httpClient = httpClient,
             baseUrl = "http://localhost:8080"
         )
+    }
+
+    val fileStorage by lazy {
+        createFileStorage()
+    }
+
+    /**
+     * Service for data analysis with local LLM
+     */
+    val dataAnalysisService by lazy {
+        DataAnalysisService(
+            ragService = ragService,
+            fileStorage = fileStorage
+        ).also { service ->
+            // Auto-load data files index on startup
+            kotlinx.coroutines.MainScope().launch {
+                try {
+                    service.loadFilesIndex()
+                    Napier.i("Data files index loaded: ${service.getLoadedFiles().size} files")
+                } catch (e: Exception) {
+                    Napier.e("Failed to load data files index on startup", e)
+                }
+            }
+        }
     }
 
     // ============================================================================

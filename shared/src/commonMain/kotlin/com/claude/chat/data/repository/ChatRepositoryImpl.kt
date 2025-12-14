@@ -801,8 +801,8 @@ class ChatRepositoryImpl(
         systemPrompt: String?
     ): Flow<StreamChunk> = flow {
         try {
-            // Use custom Ollama system prompt if available
-            val finalSystemPrompt = getOllamaSystemPrompt() ?: systemPrompt
+            // Use custom system prompt if provided, otherwise use Ollama default
+            val finalSystemPrompt = systemPrompt ?: getOllamaSystemPrompt()
             val ollamaMessages = mapToOllamaMessages(messages, finalSystemPrompt)
             val ollamaModel = getOllamaModel()
 

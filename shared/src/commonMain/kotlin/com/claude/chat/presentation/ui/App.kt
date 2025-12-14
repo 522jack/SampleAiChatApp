@@ -12,6 +12,8 @@ import com.claude.chat.platform.isSystemInDarkTheme
 import com.claude.chat.presentation.chat.ChatIntent
 import com.claude.chat.presentation.chat.ChatScreen
 import com.claude.chat.presentation.chat.ChatViewModel
+import com.claude.chat.presentation.dataanalysis.DataAnalysisScreen
+import com.claude.chat.presentation.dataanalysis.DataAnalysisViewModel
 import com.claude.chat.presentation.settings.SettingsScreen
 import com.claude.chat.presentation.settings.SettingsViewModel
 import com.claude.chat.presentation.support.SupportScreen
@@ -79,6 +81,13 @@ fun App(
         )
     }
 
+    val dataAnalysisViewModel = viewModel {
+        DataAnalysisViewModel(
+            dataAnalysisService = appContainer.dataAnalysisService,
+            chatRepository = appContainer.chatRepository
+        )
+    }
+
     val chatState by chatViewModel.state.collectAsState()
     val settingsState by settingsViewModel.state.collectAsState()
 
@@ -108,6 +117,7 @@ fun App(
                     state = chatState,
                     onIntent = chatViewModel::onIntent,
                     onNavigateToSettings = { currentScreen = Screen.Settings },
+                    onNavigateToDataAnalysis = { currentScreen = Screen.DataAnalysis },
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -131,6 +141,14 @@ fun App(
                     }
                 )
             }
+            Screen.DataAnalysis -> {
+                DataAnalysisScreen(
+                    viewModel = dataAnalysisViewModel,
+                    onNavigateBack = {
+                        currentScreen = Screen.Chat
+                    }
+                )
+            }
         }
     }
 }
@@ -138,5 +156,6 @@ fun App(
 enum class Screen {
     Chat,
     Settings,
-    Support
+    Support,
+    DataAnalysis
 }
