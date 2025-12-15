@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.claude.chat.platform.rememberFilePickerHelper
+import com.claude.chat.presentation.settings.mvi.SettingsIntent
+import com.claude.chat.presentation.settings.mvi.SettingsUiState
 import kotlinx.coroutines.delay
 
 /**

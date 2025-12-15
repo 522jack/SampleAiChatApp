@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.claude.chat.data.model.McpTool
+import com.claude.chat.presentation.chat.mvi.ChatIntent
+import com.claude.chat.presentation.chat.mvi.ChatUiState
 import com.claude.chat.presentation.ui.ChatInputBar
 import com.claude.chat.presentation.ui.McpToolDialog
 import com.claude.chat.presentation.ui.McpToolsIndicator

@@ -9,9 +9,9 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.claude.chat.di.AppContainer
 import com.claude.chat.platform.isSystemInDarkTheme
-import com.claude.chat.presentation.chat.ChatIntent
 import com.claude.chat.presentation.chat.ChatScreen
 import com.claude.chat.presentation.chat.ChatViewModel
+import com.claude.chat.presentation.chat.mvi.ChatIntent
 import com.claude.chat.presentation.dataanalysis.DataAnalysisScreen
 import com.claude.chat.presentation.dataanalysis.DataAnalysisViewModel
 import com.claude.chat.presentation.settings.SettingsScreen

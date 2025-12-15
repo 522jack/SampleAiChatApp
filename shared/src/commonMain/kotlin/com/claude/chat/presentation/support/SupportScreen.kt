@@ -12,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.claude.chat.presentation.support.mvi.SupportIntent
+import com.claude.chat.presentation.support.mvi.SupportUiState
 import com.claude.chat.presentation.ui.MarkdownText
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -21,6 +23,7 @@ fun SupportScreen(
     onNavigateBack: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
+    val onIntent = viewModel::onIntent
 
     Scaffold(
         topBar = {
@@ -33,7 +36,7 @@ fun SupportScreen(
                 },
                 actions = {
                     if (state.answer != null) {
-                        IconButton(onClick = { viewModel.clearForm() }) {
+                        IconButton(onClick = { onIntent(SupportIntent.ClearForm) }) {
                             Icon(Icons.Default.Delete, "Очистить")
                         }
                     }
@@ -72,7 +75,7 @@ fun SupportScreen(
             // Поле ввода вопроса
             OutlinedTextField(
                 value = state.question,
-                onValueChange = { viewModel.updateQuestion(it) },
+                onValueChange = { onIntent(SupportIntent.UpdateQuestion(it)) },
                 label = { Text("Ваш вопрос") },
                 placeholder = { Text("Например: Почему не работает авторизация?") },
                 modifier = Modifier.fillMaxWidth(),
@@ -83,7 +86,7 @@ fun SupportScreen(
 
             // Кнопка отправки
             Button(
-                onClick = { viewModel.askQuestion() },
+                onClick = { onIntent(SupportIntent.AskQuestion) },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.isLoading && state.question.isNotBlank()
             ) {
