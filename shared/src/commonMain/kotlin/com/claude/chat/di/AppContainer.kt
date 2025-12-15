@@ -140,6 +140,13 @@ class AppContainer {
         ModelComparisonOrchestrator(apiClient)
     }
 
+    /**
+     * Service for managing user profile
+     */
+    private val userProfileService by lazy {
+        com.claude.chat.domain.service.UserProfileService(fileStorage)
+    }
+
     val chatRepository: ChatRepository by lazy {
         ChatRepositoryImpl(
             apiClient = apiClient,
@@ -148,7 +155,8 @@ class AppContainer {
             mcpManager = mcpManager,
             ragService = ragService,
             toolExecutionService = toolExecutionService,
-            modelComparisonOrchestrator = modelComparisonOrchestrator
+            modelComparisonOrchestrator = modelComparisonOrchestrator,
+            userProfileService = userProfileService
         ).also {
             // Auto-load RAG index on startup
             kotlinx.coroutines.MainScope().launch {
@@ -211,7 +219,7 @@ class AppContainer {
      * Orchestrator for message sending with RAG and tool support
      */
     val messageSendingOrchestrator by lazy {
-        MessageSendingOrchestrator(chatRepository, techSpecManager)
+        MessageSendingOrchestrator(chatRepository, techSpecManager, userProfileService)
     }
 
     /**

@@ -803,6 +803,122 @@ fun SettingsScreen(
                 }
             }
 
+            // User Profile Section
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "User Profile",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Text(
+                        "Load a JSON file with your profile to personalize AI agent behavior. The profile will be included in all conversations.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Current profile display
+                    if (state.userProfile != null) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "Active Profile",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        Text(
+                                            state.userProfile.name,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        if (state.userProfile.bio != null) {
+                                            Text(
+                                                state.userProfile.bio,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                maxLines = 2
+                                            )
+                                        }
+                                    }
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Profile active",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // File picker and actions
+                    val filePickerHelper = rememberFilePickerHelper()
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                filePickerHelper.pickTextFile { content ->
+                                    content?.let {
+                                        onIntent(SettingsIntent.LoadUserProfile(it))
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.Upload,
+                                contentDescription = "Upload profile",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (state.userProfile != null) "Replace" else "Load Profile")
+                        }
+
+                        if (state.userProfile != null) {
+                            OutlinedButton(
+                                onClick = { onIntent(SettingsIntent.ClearUserProfile) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Clear profile",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Clear")
+                            }
+                        }
+                    }
+
+                    // Info text
+                    Text(
+                        "Tip: See user_profile_example.json in project root for format reference",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             // Support Service Section
             Card(
                 modifier = Modifier.fillMaxWidth(),

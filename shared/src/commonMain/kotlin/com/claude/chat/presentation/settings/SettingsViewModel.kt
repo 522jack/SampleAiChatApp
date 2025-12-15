@@ -88,6 +88,10 @@ class SettingsViewModel(
             is SettingsIntent.UpdateOllamaModel -> updateOllamaModel(intent.model)
             is SettingsIntent.RefreshOllamaModels -> refreshOllamaModels()
             is SettingsIntent.CheckOllamaHealth -> checkOllamaHealth()
+
+            // User Profile Management
+            is SettingsIntent.LoadUserProfile -> loadUserProfile(intent.jsonContent)
+            is SettingsIntent.ClearUserProfile -> clearUserProfile()
         }
     }
 
@@ -124,6 +128,9 @@ class SettingsViewModel(
                 val ollamaBaseUrl = repository.getOllamaBaseUrl()
                 val ollamaModel = repository.getOllamaModel()
 
+                // Load user profile
+                val userProfile = repository.getUserProfile()
+
                 _state.update {
                     it.copy(
                         apiKey = apiKey,
@@ -141,6 +148,8 @@ class SettingsViewModel(
                         modelProvider = modelProvider,
                         ollamaBaseUrl = ollamaBaseUrl,
                         ollamaModel = ollamaModel,
+                        userProfile = userProfile,
+                        isUserProfileActive = userProfile != null,
                         isLoading = false
                     )
                 }
@@ -563,6 +572,79 @@ class SettingsViewModel(
             val healthy = repository.checkOllamaHealth()
             _state.update { it.copy(ollamaHealthy = healthy) }
             Napier.d("Ollama health check: $healthy")
+        }
+    }
+
+    // ============================================================================
+    // User Profile Management
+    // ============================================================================
+
+    private fun loadUserProfile(jsonContent: String) {
+        viewModelScope.launch {
+            try {
+                val result = repository.loadUserProfile(jsonContent)
+                if (result.isSuccess) {
+                    val profile = result.getOrThrow()
+                    _state.update {
+                        it.copy(
+                            userProfile = profile,
+                            isUserProfileActive = true,
+                            saveSuccess = true,
+                            error = null
+                        )
+                    }
+                    Napier.d("User profile loaded: ${profile.name}")
+                } else {
+                    val error = result.exceptionOrNull()?.message ?: "Failed to load profile"
+                    _state.update { it.copy(error = error, saveSuccess = false) }
+                    Napier.e("Error loading user profile: $error")
+                }
+            } catch (e: Exception) {
+                Napier.e("Error loading user profile", e)
+                _state.update { it.copy(error = e.message, saveSuccess = false) }
+            }
+        }
+    }
+
+    private fun clearUserProfile() {
+        viewModelScope.launch {
+            try {
+                val cleared = repository.clearUserProfile()
+                if (cleared) {
+                    _state.update {
+                        it.copy(
+                            userProfile = null,
+                            isUserProfileActive = false,
+                            saveSuccess = true
+                        )
+                    }
+                    Napier.d("User profile cleared")
+                } else {
+                    _state.update { it.copy(error = "Failed to clear profile") }
+                }
+            } catch (e: Exception) {
+                Napier.e("Error clearing user profile", e)
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
+    private fun loadUserProfileState() {
+        viewModelScope.launch {
+            try {
+                val profile = repository.getUserProfile()
+                _state.update {
+                    it.copy(
+                        userProfile = profile,
+                        isUserProfileActive = profile != null
+                    )
+                }
+                if (profile != null) {
+                    Napier.d("User profile state loaded: ${profile.name}")
+                }
+            } catch (e: Exception) {
+                Napier.e("Error loading user profile state", e)
+            }
         }
     }
 

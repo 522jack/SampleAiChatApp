@@ -35,7 +35,10 @@ data class SettingsUiState(
     val ragDocuments: List<RagDocument> = emptyList(),
     val showAddDocumentDialog: Boolean = false,
     val newDocumentTitle: String = "",
-    val newDocumentContent: String = ""
+    val newDocumentContent: String = "",
+    // User Profile management
+    val userProfile: com.claude.chat.domain.model.UserProfile? = null,
+    val isUserProfileActive: Boolean = false
 )
 
 /**
@@ -81,4 +84,7 @@ sealed class SettingsIntent {
     data class UpdateOllamaModel(val model: String) : SettingsIntent()
     data object RefreshOllamaModels : SettingsIntent()
     data object CheckOllamaHealth : SettingsIntent()
+    // User Profile management
+    data class LoadUserProfile(val jsonContent: String) : SettingsIntent()
+    data object ClearUserProfile : SettingsIntent()
 }

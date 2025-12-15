@@ -51,7 +51,8 @@ class ChatRepositoryImpl(
     private val mcpManager: McpManager,
     private val ragService: RagService,
     private val toolExecutionService: ToolExecutionService,
-    private val modelComparisonOrchestrator: ModelComparisonOrchestrator
+    private val modelComparisonOrchestrator: ModelComparisonOrchestrator,
+    private val userProfileService: com.claude.chat.domain.service.UserProfileService
 ) : ChatRepository {
 
     private val compressionService = MessageCompressionService(apiClient)
@@ -663,6 +664,22 @@ class ChatRepositoryImpl(
 
     override suspend fun saveRagRerankingEnabled(enabled: Boolean) {
         settingsStorage.saveRagRerankingEnabled(enabled)
+    }
+
+    // ============================================================================
+    // User Profile Methods
+    // ============================================================================
+
+    override suspend fun loadUserProfile(jsonContent: String): Result<com.claude.chat.domain.model.UserProfile> {
+        return userProfileService.loadProfile(jsonContent)
+    }
+
+    override suspend fun getUserProfile(): com.claude.chat.domain.model.UserProfile? {
+        return userProfileService.getProfile()
+    }
+
+    override suspend fun clearUserProfile(): Boolean {
+        return userProfileService.clearProfile()
     }
 
     // ============================================================================

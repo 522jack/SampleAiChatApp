@@ -562,7 +562,7 @@ class DataAnalysisService(
                 filteredResults.forEachIndexed { index, (result, document) ->
                     val fileName = document.metadata["dataFileName"] ?: "Unknown"
                     val fileType = document.metadata["dataFileType"] ?: "Unknown"
-                    val similarity = "%.2f".format(result.similarity * 100)
+                    val similarity = ((result.similarity * 100 * 100).toInt() / 100.0).toString()
 
                     appendLine("--- Документ ${index + 1} ($fileName, $fileType, релевантность: $similarity%) ---")
                     appendLine(result.chunk.content)

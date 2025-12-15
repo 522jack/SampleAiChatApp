@@ -224,6 +224,25 @@ interface ChatRepository {
     suspend fun saveRagRerankingEnabled(enabled: Boolean)
 
     // ============================================================================
+    // User Profile Methods
+    // ============================================================================
+
+    /**
+     * Load user profile from JSON content
+     */
+    suspend fun loadUserProfile(jsonContent: String): Result<com.claude.chat.domain.model.UserProfile>
+
+    /**
+     * Get current user profile
+     */
+    suspend fun getUserProfile(): com.claude.chat.domain.model.UserProfile?
+
+    /**
+     * Clear user profile
+     */
+    suspend fun clearUserProfile(): Boolean
+
+    // ============================================================================
     // Model Provider Methods
     // ============================================================================
 

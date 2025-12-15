@@ -24,7 +24,10 @@ data class ChatUiState(
     val ragDocuments: List<com.claude.chat.data.model.RagDocument> = emptyList(),
     // Model Provider
     val modelProvider: String = "CLAUDE",
-    val ollamaModels: List<String> = emptyList()
+    val ollamaModels: List<String> = emptyList(),
+    // User Profile
+    val userProfile: com.claude.chat.domain.model.UserProfile? = null,
+    val isUserProfileActive: Boolean = false
 )
 
 /**
@@ -47,4 +50,7 @@ sealed class ChatIntent {
     data class IndexDocument(val title: String, val content: String) : ChatIntent()
     data class RemoveRagDocument(val documentId: String) : ChatIntent()
     data object LoadRagDocuments : ChatIntent()
+    data class LoadUserProfile(val jsonContent: String) : ChatIntent()
+    data object ClearUserProfile : ChatIntent()
+    data object LoadUserProfileState : ChatIntent()
 }

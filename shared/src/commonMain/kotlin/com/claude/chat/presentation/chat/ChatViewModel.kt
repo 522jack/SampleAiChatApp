@@ -44,6 +44,7 @@ class ChatViewModel(
         loadRagMode()
         loadRagDocuments()
         loadModelProvider()
+        loadUserProfileState()
     }
 
     // ============================================================================
@@ -68,6 +69,9 @@ class ChatViewModel(
             is ChatIntent.IndexDocument -> indexDocument(intent.title, intent.content)
             is ChatIntent.RemoveRagDocument -> removeRagDocument(intent.documentId)
             is ChatIntent.LoadRagDocuments -> loadRagDocuments()
+            is ChatIntent.LoadUserProfile -> loadUserProfile(intent.jsonContent)
+            is ChatIntent.ClearUserProfile -> clearUserProfile()
+            is ChatIntent.LoadUserProfileState -> loadUserProfileState()
         }
     }
 
@@ -659,6 +663,77 @@ class ChatViewModel(
             } catch (e: Exception) {
                 Napier.e("Error removing document", e)
                 _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
+    // ============================================================================
+    // User Profile Methods
+    // ============================================================================
+
+    private fun loadUserProfile(jsonContent: String) {
+        viewModelScope.launch {
+            try {
+                val result = repository.loadUserProfile(jsonContent)
+                if (result.isSuccess) {
+                    val profile = result.getOrThrow()
+                    _state.update {
+                        it.copy(
+                            userProfile = profile,
+                            isUserProfileActive = true,
+                            error = null
+                        )
+                    }
+                    Napier.d("User profile loaded: ${profile.name}")
+                } else {
+                    val error = result.exceptionOrNull()?.message ?: "Failed to load profile"
+                    _state.update { it.copy(error = error) }
+                    Napier.e("Error loading user profile: $error")
+                }
+            } catch (e: Exception) {
+                Napier.e("Error loading user profile", e)
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
+    private fun clearUserProfile() {
+        viewModelScope.launch {
+            try {
+                val cleared = repository.clearUserProfile()
+                if (cleared) {
+                    _state.update {
+                        it.copy(
+                            userProfile = null,
+                            isUserProfileActive = false
+                        )
+                    }
+                    Napier.d("User profile cleared")
+                }
+            } catch (e: Exception) {
+                Napier.e("Error clearing user profile", e)
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
+    private fun loadUserProfileState() {
+        viewModelScope.launch {
+            try {
+                val profile = repository.getUserProfile()
+                _state.update {
+                    it.copy(
+                        userProfile = profile,
+                        isUserProfileActive = profile != null
+                    )
+                }
+                if (profile != null) {
+                    Napier.d("User profile state loaded: ${profile.name}")
+                } else {
+                    Napier.d("No user profile found")
+                }
+            } catch (e: Exception) {
+                Napier.e("Error loading user profile state", e)
             }
         }
     }

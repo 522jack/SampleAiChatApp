@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.flow
 /**
  * Orchestrator for message sending operations
  * Handles the complex logic of sending messages including:
+ * - User profile personalization
  * - RAG context enrichment
  * - Tech Spec mode prompts
  * - Tool loop execution
@@ -18,7 +19,8 @@ import kotlinx.coroutines.flow.flow
  */
 class MessageSendingOrchestrator(
     private val repository: ChatRepository,
-    private val techSpecManager: TechSpecManager
+    private val techSpecManager: TechSpecManager,
+    private val userProfileService: UserProfileService
 ) {
     companion object {
         // RAG citation instructions
@@ -127,6 +129,14 @@ ALWAYS make citations clickable and properly formatted!
             techSpecManager.buildSystemPrompt(config.userText, config.techSpecState)
         } else {
             repository.getSystemPrompt() ?: ""
+        }
+
+        // Add user profile context if available
+        val userProfile = repository.getUserProfile()
+        if (userProfile != null) {
+            val profileContext = userProfileService.buildProfileContext(userProfile)
+            systemPrompt = "$systemPrompt\n\n$profileContext"
+            Napier.d("User profile context added to system prompt for user: ${userProfile.name}")
         }
 
         var wasRagUsed = false
