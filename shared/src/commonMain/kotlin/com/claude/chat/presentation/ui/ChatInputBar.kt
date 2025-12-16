@@ -10,13 +10,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * Chat input bar with text field and send button
+ * Chat input bar with text field, voice input button and send button
  */
 @Composable
 fun ChatInputBar(
     enabled: Boolean,
     onSendMessage: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isRecording: Boolean = false,
+    onStartVoiceInput: () -> Unit = {},
+    onStopVoiceInput: () -> Unit = {}
 ) {
     var text by remember { mutableStateOf("") }
 
@@ -38,10 +41,19 @@ fun ChatInputBar(
                 modifier = Modifier
                     .weight(1f),
                 placeholder = { Text("Type a message...") },
-                enabled = enabled,
+                enabled = enabled && !isRecording,
                 maxLines = 5
             )
 
+            // Voice input button
+            VoiceInputButton(
+                isRecording = isRecording,
+                enabled = enabled && text.isBlank(),
+                onStartRecording = onStartVoiceInput,
+                onStopRecording = onStopVoiceInput
+            )
+
+            // Send button
             FilledIconButton(
                 onClick = {
                     if (text.isNotBlank()) {
@@ -49,7 +61,7 @@ fun ChatInputBar(
                         text = ""
                     }
                 },
-                enabled = enabled && text.isNotBlank()
+                enabled = enabled && text.isNotBlank() && !isRecording
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.Send,

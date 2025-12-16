@@ -28,7 +28,8 @@ class ChatViewModel(
     private val repository: ChatRepository,
     private val chatHistoryManager: ChatHistoryManager,
     private val messageSendingOrchestrator: MessageSendingOrchestrator,
-    private val techSpecManager: TechSpecManager
+    private val techSpecManager: TechSpecManager,
+    private val speechRecognitionService: Any? = null // Platform-specific service (Android: SpeechRecognitionService)
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ChatUiState())
@@ -72,6 +73,11 @@ class ChatViewModel(
             is ChatIntent.LoadUserProfile -> loadUserProfile(intent.jsonContent)
             is ChatIntent.ClearUserProfile -> clearUserProfile()
             is ChatIntent.LoadUserProfileState -> loadUserProfileState()
+            // Voice Input
+            is ChatIntent.StartVoiceInput -> startVoiceInput()
+            is ChatIntent.StopVoiceInput -> stopVoiceInput()
+            is ChatIntent.OnVoiceRecognitionResult -> onVoiceRecognitionResult(intent.text)
+            is ChatIntent.OnVoiceRecognitionError -> onVoiceRecognitionError(intent.error)
         }
     }
 
@@ -736,5 +742,31 @@ class ChatViewModel(
                 Napier.e("Error loading user profile state", e)
             }
         }
+    }
+
+    // ============================================================================
+    // Voice Input (Android-specific)
+    // ============================================================================
+
+    private fun startVoiceInput() {
+        Napier.d("Starting voice input")
+        _state.update { it.copy(isRecording = true, voiceInputError = null) }
+    }
+
+    private fun stopVoiceInput() {
+        Napier.d("Stopping voice input")
+        _state.update { it.copy(isRecording = false) }
+    }
+
+    private fun onVoiceRecognitionResult(text: String) {
+        Napier.d("Voice recognition result: $text")
+        _state.update { it.copy(isRecording = false, voiceInputError = null) }
+        // Automatically send the recognized text
+        sendMessage(text)
+    }
+
+    private fun onVoiceRecognitionError(error: String) {
+        Napier.e("Voice recognition error: $error")
+        _state.update { it.copy(isRecording = false, voiceInputError = error) }
     }
 }

@@ -27,7 +27,10 @@ data class ChatUiState(
     val ollamaModels: List<String> = emptyList(),
     // User Profile
     val userProfile: com.claude.chat.domain.model.UserProfile? = null,
-    val isUserProfileActive: Boolean = false
+    val isUserProfileActive: Boolean = false,
+    // Voice Input
+    val isRecording: Boolean = false,
+    val voiceInputError: String? = null
 )
 
 /**
@@ -53,4 +56,9 @@ sealed class ChatIntent {
     data class LoadUserProfile(val jsonContent: String) : ChatIntent()
     data object ClearUserProfile : ChatIntent()
     data object LoadUserProfileState : ChatIntent()
+    // Voice Input
+    data object StartVoiceInput : ChatIntent()
+    data object StopVoiceInput : ChatIntent()
+    data class OnVoiceRecognitionResult(val text: String) : ChatIntent()
+    data class OnVoiceRecognitionError(val error: String) : ChatIntent()
 }

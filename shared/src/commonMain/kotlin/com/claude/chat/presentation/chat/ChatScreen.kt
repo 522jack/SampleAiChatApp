@@ -23,6 +23,7 @@ import com.claude.chat.presentation.ui.McpToolsList
 import com.claude.chat.presentation.ui.MessageBubble
 import com.claude.chat.presentation.ui.ModelSelector
 import com.claude.chat.presentation.ui.TypingIndicator
+import com.claude.chat.presentation.ui.VoiceInputHandler
 import kotlinx.coroutines.launch
 
 /**
@@ -40,6 +41,12 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var selectedTool by remember { mutableStateOf<McpTool?>(null) }
+
+    // Voice input handler (Android-specific)
+    VoiceInputHandler(
+        isRecording = state.isRecording,
+        onIntent = onIntent
+    )
 
     // Show MCP Tool Dialog
     selectedTool?.let { tool ->
@@ -121,8 +128,15 @@ fun ChatScreen(
 
             ChatInputBar(
                 enabled = isEnabled,
+                isRecording = state.isRecording,
                 onSendMessage = { text ->
                     onIntent(ChatIntent.SendMessage(text))
+                },
+                onStartVoiceInput = {
+                    onIntent(ChatIntent.StartVoiceInput)
+                },
+                onStopVoiceInput = {
+                    onIntent(ChatIntent.StopVoiceInput)
                 }
             )
         }
